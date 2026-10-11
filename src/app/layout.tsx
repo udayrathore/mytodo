@@ -1,0 +1,18 @@
+import type { Metadata } from "next";
+import "./globals.css";
+export const metadata: Metadata = {
+  title: "Still · Personal Intelligence",
+  description: "A private place for intentions, actions, and observations.",
+  robots: { index: false, follow: false },
+};
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
+}

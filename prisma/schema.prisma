@@ -1,0 +1,532 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TaskStatus {
+  INBOX
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  DEFERRED
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum EventType {
+  CREATED
+  UPDATED
+  STATUS_CHANGED
+  PLANNED
+  RESCHEDULED
+  DEFERRED
+  COMPLETED
+  REOPENED
+  CANCELLED
+  ARCHIVED
+  CATEGORY_CHANGED
+  EFFORT_RECORDED
+  FIELDS_UPDATED
+  RELATION_ADDED
+}
+
+enum EntityType {
+  PERSON
+  ORGANIZATION
+  CLIENT
+  PROJECT
+  OTHER
+}
+
+enum PeriodType {
+  DAY
+  WEEK
+  MONTH
+  QUARTER
+  SPRINT
+  CUSTOM
+}
+
+enum PeriodStatus {
+  OPEN
+  CLOSED
+}
+
+enum FieldType {
+  TEXT
+  LONG_TEXT
+  NUMBER
+  BOOLEAN
+  DATE
+  DATETIME
+  SELECT
+  MULTI_SELECT
+}
+
+enum RelationType {
+  DEPENDS_ON
+  BLOCKS
+  RELATED_TO
+  FOLLOW_UP_TO
+  SUBTASK_OF
+}
+
+enum ReminderChannel {
+  IN_APP
+  EMAIL
+  WHATSAPP
+}
+
+enum ReminderStatus {
+  PENDING
+  DELIVERED
+  CANCELLED
+}
+
+enum DeliveryStatus {
+  DELIVERED
+  FAILED
+}
+
+model User {
+  id                         String                @id @default(uuid()) @db.Uuid
+  email                      String                @unique
+  name                       String
+  timezone                   String                @default("Asia/Kolkata")
+  createdAt                  DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  categoryRecords            Category[]
+  taskRecords                Task[]
+  taskEventRecords           TaskEvent[]
+  tagRecords                 Tag[]
+  taskTagRecords             TaskTag[]
+  entityRecords              Entity[]
+  taskEntityLinkRecords      TaskEntityLink[]
+  planningPeriodRecords      PlanningPeriod[]
+  taskPeriodRecords          TaskPeriod[]
+  taskTemplateRecords        TaskTemplate[]
+  taskTemplateFieldRecords   TaskTemplateField[]
+  taskFieldValueRecords      TaskFieldValue[]
+  taskEffortEntryRecords     TaskEffortEntry[]
+  taskRelationRecords        TaskRelation[]
+  journalEntryRecords        JournalEntry[]
+  journalCategoryLinkRecords JournalCategoryLink[]
+  journalEntityLinkRecords   JournalEntityLink[]
+  reminderRecords            Reminder[]
+  reminderDeliveryRecords    ReminderDelivery[]
+  sessionRecords             Session[]
+
+  @@map("users")
+}
+
+model Category {
+  id          String                @id @default(uuid()) @db.Uuid
+  userId      String                @map("user_id") @db.Uuid
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  name        String
+  description String?
+  slug        String
+  parentId    String?               @map("parent_id") @db.Uuid
+  sortOrder   Int                   @default(0) @map("sort_order")
+  isActive    Boolean               @default(true) @map("is_active")
+  archivedAt  DateTime?             @map("archived_at") @db.Timestamptz(3)
+  parent      Category?             @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children    Category[]            @relation("CategoryTree")
+  tasks       Task[]
+  journals    JournalCategoryLink[]
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([userId, slug])
+  @@unique([id, userId])
+  @@index([userId, parentId, sortOrder])
+  @@map("categories")
+}
+
+model Task {
+  id                  String            @id @default(uuid()) @db.Uuid
+  userId              String            @map("user_id") @db.Uuid
+  user                User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  title               String            @db.VarChar(240)
+  description         String?
+  primaryCategoryId   String?           @map("primary_category_id") @db.Uuid
+  templateId          String?           @map("template_id") @db.Uuid
+  status              TaskStatus        @default(INBOX)
+  priority            Priority          @default(MEDIUM)
+  plannedDate         DateTime?         @map("planned_date") @db.Date
+  dueAt               DateTime?         @map("due_at") @db.Timestamptz(3)
+  estimatedMinutes    Int?              @map("estimated_minutes")
+  manualActualMinutes Int?              @map("manual_actual_minutes")
+  completedAt         DateTime?         @map("completed_at") @db.Timestamptz(3)
+  cancelledAt         DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  archivedAt          DateTime?         @map("archived_at") @db.Timestamptz(3)
+  version             Int               @default(0)
+  category            Category?         @relation(fields: [primaryCategoryId], references: [id], onDelete: Restrict)
+  template            TaskTemplate?     @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  events              TaskEvent[]
+  tags                TaskTag[]
+  entities            TaskEntityLink[]
+  periods             TaskPeriod[]
+  fieldValues         TaskFieldValue[]
+  effort              TaskEffortEntry[]
+  relationsFrom       TaskRelation[]    @relation("SourceTask")
+  relationsTo         TaskRelation[]    @relation("TargetTask")
+  reminders           Reminder[]
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([id, userId])
+  @@index([userId, archivedAt, status, plannedDate])
+  @@index([userId, dueAt])
+  @@index([userId, primaryCategoryId])
+  @@map("tasks")
+}
+
+model TaskEvent {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  taskId     String    @map("task_id") @db.Uuid
+  eventType  EventType @map("event_type")
+  occurredAt DateTime  @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  fromValue  Json?     @map("from_value")
+  toValue    Json?     @map("to_value")
+  metadata   Json?
+  task       Task      @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([id, userId])
+  @@index([userId, occurredAt])
+  @@index([taskId, occurredAt])
+  @@map("task_events")
+}
+
+model Tag {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  user        User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  name        String
+  slug        String
+  description String?
+  tasks       TaskTag[]
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([userId, slug])
+  @@unique([id, userId])
+  @@map("tags")
+}
+
+model TaskTag {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  taskId    String   @map("task_id") @db.Uuid
+  tagId     String   @map("tag_id") @db.Uuid
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([taskId, tagId])
+  @@unique([id, userId])
+  @@map("task_tags")
+}
+
+model Entity {
+  id             String              @id @default(uuid()) @db.Uuid
+  userId         String              @map("user_id") @db.Uuid
+  user           User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  name           String
+  type           EntityType
+  description    String?
+  parentEntityId String?             @map("parent_entity_id") @db.Uuid
+  metadata       Json?
+  isActive       Boolean             @default(true) @map("is_active")
+  archivedAt     DateTime?           @map("archived_at") @db.Timestamptz(3)
+  parent         Entity?             @relation("EntityTree", fields: [parentEntityId], references: [id], onDelete: Restrict)
+  children       Entity[]            @relation("EntityTree")
+  tasks          TaskEntityLink[]
+  journals       JournalEntityLink[]
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([userId, name, type])
+  @@unique([id, userId])
+  @@index([userId, parentEntityId])
+  @@map("entities")
+}
+
+model TaskEntityLink {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  user             User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  taskId           String   @map("task_id") @db.Uuid
+  entityId         String   @map("entity_id") @db.Uuid
+  relationshipType String   @default("RELATED_TO") @map("relationship_type")
+  task             Task     @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  entity           Entity   @relation(fields: [entityId], references: [id], onDelete: Restrict)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([taskId, entityId, relationshipType])
+  @@unique([id, userId])
+  @@index([userId, entityId])
+  @@map("task_entity_links")
+}
+
+model PlanningPeriod {
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @map("user_id") @db.Uuid
+  user      User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  type      PeriodType   @default(WEEK)
+  title     String
+  startsOn  DateTime     @map("starts_on") @db.Date
+  endsOn    DateTime     @map("ends_on") @db.Date
+  status    PeriodStatus @default(OPEN)
+  tasks     TaskPeriod[]
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([userId, type, startsOn, endsOn])
+  @@unique([id, userId])
+  @@map("planning_periods")
+}
+
+model TaskPeriod {
+  id               String         @id @default(uuid()) @db.Uuid
+  userId           String         @map("user_id") @db.Uuid
+  user             User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  taskId           String         @map("task_id") @db.Uuid
+  planningPeriodId String         @map("planning_period_id") @db.Uuid
+  plannedAt        DateTime       @default(now()) @map("planned_at") @db.Timestamptz(3)
+  removedAt        DateTime?      @map("removed_at") @db.Timestamptz(3)
+  task             Task           @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  period           PlanningPeriod @relation(fields: [planningPeriodId], references: [id], onDelete: Restrict)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([id, userId])
+  @@index([userId, planningPeriodId, removedAt])
+  @@map("task_periods")
+}
+
+model TaskTemplate {
+  id          String              @id @default(uuid()) @db.Uuid
+  userId      String              @map("user_id") @db.Uuid
+  user        User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  name        String
+  description String?
+  revision    Int                 @default(1)
+  isActive    Boolean             @default(true) @map("is_active")
+  fields      TaskTemplateField[]
+  tasks       Task[]
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([userId, name, revision])
+  @@unique([id, userId])
+  @@map("task_templates")
+}
+
+model TaskTemplateField {
+  id            String           @id @default(uuid()) @db.Uuid
+  userId        String           @map("user_id") @db.Uuid
+  user          User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  templateId    String           @map("template_id") @db.Uuid
+  key           String
+  label         String
+  fieldType     FieldType        @map("field_type")
+  required      Boolean          @default(false)
+  sortOrder     Int              @default(0) @map("sort_order")
+  configuration Json?
+  template      TaskTemplate     @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  values        TaskFieldValue[]
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([templateId, key])
+  @@unique([id, userId])
+  @@map("task_template_fields")
+}
+
+model TaskFieldValue {
+  id              String            @id @default(uuid()) @db.Uuid
+  userId          String            @map("user_id") @db.Uuid
+  user            User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  taskId          String            @map("task_id") @db.Uuid
+  templateFieldId String            @map("template_field_id") @db.Uuid
+  textValue       String?           @map("text_value")
+  numberValue     Decimal?          @map("number_value") @db.Decimal(18, 4)
+  booleanValue    Boolean?          @map("boolean_value")
+  dateValue       DateTime?         @map("date_value") @db.Date
+  datetimeValue   DateTime?         @map("datetime_value") @db.Timestamptz(3)
+  jsonValue       Json?             @map("json_value")
+  task            Task              @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  field           TaskTemplateField @relation(fields: [templateFieldId], references: [id], onDelete: Restrict)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([taskId, templateFieldId])
+  @@unique([id, userId])
+  @@map("task_field_values")
+}
+
+model TaskEffortEntry {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  taskId     String   @map("task_id") @db.Uuid
+  occurredOn DateTime @map("occurred_on") @db.Date
+  minutes    Int
+  note       String?
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([id, userId])
+  @@index([userId, occurredOn])
+  @@index([taskId])
+  @@map("task_effort_entries")
+}
+
+model TaskRelation {
+  id           String       @id @default(uuid()) @db.Uuid
+  userId       String       @map("user_id") @db.Uuid
+  user         User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  sourceTaskId String       @map("source_task_id") @db.Uuid
+  targetTaskId String       @map("target_task_id") @db.Uuid
+  relationType RelationType @map("relation_type")
+  source       Task         @relation("SourceTask", fields: [sourceTaskId], references: [id], onDelete: Restrict)
+  target       Task         @relation("TargetTask", fields: [targetTaskId], references: [id], onDelete: Restrict)
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([sourceTaskId, targetTaskId, relationType])
+  @@unique([id, userId])
+  @@map("task_relations")
+}
+
+model JournalEntry {
+  id         String                @id @default(uuid()) @db.Uuid
+  userId     String                @map("user_id") @db.Uuid
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  title      String?
+  content    String
+  occurredAt DateTime              @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  archivedAt DateTime?             @map("archived_at") @db.Timestamptz(3)
+  categories JournalCategoryLink[]
+  entities   JournalEntityLink[]
+  reminders  Reminder[]
+  createdAt  DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([id, userId])
+  @@index([userId, occurredAt])
+  @@map("journal_entries")
+}
+
+model JournalCategoryLink {
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  journalEntryId String       @map("journal_entry_id") @db.Uuid
+  categoryId     String       @map("category_id") @db.Uuid
+  journal        JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  category       Category     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([journalEntryId, categoryId])
+  @@unique([id, userId])
+  @@map("journal_category_links")
+}
+
+model JournalEntityLink {
+  id               String       @id @default(uuid()) @db.Uuid
+  userId           String       @map("user_id") @db.Uuid
+  user             User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  journalEntryId   String       @map("journal_entry_id") @db.Uuid
+  entityId         String       @map("entity_id") @db.Uuid
+  relationshipType String?      @map("relationship_type")
+  journal          JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  entity           Entity       @relation(fields: [entityId], references: [id], onDelete: Restrict)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([journalEntryId, entityId])
+  @@unique([id, userId])
+  @@map("journal_entity_links")
+}
+
+model Reminder {
+  id             String             @id @default(uuid()) @db.Uuid
+  userId         String             @map("user_id") @db.Uuid
+  user           User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  taskId         String?            @map("task_id") @db.Uuid
+  journalEntryId String?            @map("journal_entry_id") @db.Uuid
+  scheduledFor   DateTime           @map("scheduled_for") @db.Timestamptz(3)
+  channel        ReminderChannel    @default(IN_APP)
+  status         ReminderStatus     @default(PENDING)
+  cancelledAt    DateTime?          @map("cancelled_at") @db.Timestamptz(3)
+  task           Task?              @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  journal        JournalEntry?      @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  deliveries     ReminderDelivery[]
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([id, userId])
+  @@index([userId, status, scheduledFor])
+  @@map("reminders")
+}
+
+model ReminderDelivery {
+  id           String         @id @default(uuid()) @db.Uuid
+  userId       String         @map("user_id") @db.Uuid
+  user         User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  reminderId   String         @map("reminder_id") @db.Uuid
+  attemptedAt  DateTime       @default(now()) @map("attempted_at") @db.Timestamptz(3)
+  status       DeliveryStatus
+  provider     String?
+  externalId   String?        @map("external_id")
+  errorMessage String?        @map("error_message")
+  reminder     Reminder       @relation(fields: [reminderId], references: [id], onDelete: Restrict)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([id, userId])
+  @@index([reminderId, attemptedAt])
+  @@map("reminder_deliveries")
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([id, userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model LoginBucket {
+  key      String   @id
+  attempts Int      @default(0)
+  resetsAt DateTime @map("resets_at") @db.Timestamptz(3)
+
+  @@map("login_buckets")
+}
