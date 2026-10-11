@@ -234,12 +234,23 @@ export function TaskDetail({
               </div>
             ))}
             {data.events
-              .filter((e) => e.taskId === task.id)
+              .filter(
+                (e) =>
+                  e.taskId === task.id &&
+                  !(
+                    e.eventType === "EFFORT_RECORDED" &&
+                    e.toValue?.effortEntryId
+                  ),
+              )
               .map((e) => (
                 <div className="history-row" key={e.id}>
                   <span className="history-dot" />
                   <div>
-                    <strong>{human(e.eventType)}</strong>
+                    <strong>
+                      {e.eventType === "EFFORT_RECORDED"
+                        ? "Activity logged"
+                        : human(e.eventType)}
+                    </strong>
                     <p>
                       {e.fromValue?.status
                         ? human(String(e.fromValue.status)) + " → "
@@ -250,6 +261,12 @@ export function TaskDetail({
                           ? String(e.toValue.title)
                           : ""}
                     </p>
+                    {typeof e.toValue?.note === "string" && (
+                      <p>{e.toValue.note}</p>
+                    )}
+                    {typeof e.toValue?.occurredOn === "string" && (
+                      <p>{displayDate(e.toValue.occurredOn, "UTC")}</p>
+                    )}
                     <small>
                       {new Date(e.occurredAt).toLocaleString("en", {
                         timeZone: data.user.timezone,

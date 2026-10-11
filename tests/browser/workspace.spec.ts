@@ -27,9 +27,10 @@ test("private routes, sign-in, daily capture, effort, planning, journal, analyti
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Enter your workspace" }).click();
   await expect(
-    page.getByRole("heading", { name: "Make room for what matters." }),
+    page.getByRole("heading", { name: "Your days, across your life." }),
   ).toBeVisible();
   await page.screenshot({ path: "docs/workspace-preview.png", fullPage: true });
+  await page.getByRole("button", { name: "Tasks", exact: true }).click();
   const title = "Browser verification " + Date.now();
   await page
     .getByRole("textbox", { name: "Quick capture", exact: true })
@@ -47,7 +48,9 @@ test("private routes, sign-in, daily capture, effort, planning, journal, analyti
   await page
     .getByRole("button", { name: "Record effort", exact: true })
     .click();
-  await expect(page.getByText("20m recorded", { exact: true }).last()).toBeVisible();
+  await expect(
+    page.getByText("20m recorded", { exact: true }).last(),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Close panel" }).click();
   await page
     .getByRole("button", { name: `Complete ${title}`, exact: true })
@@ -80,7 +83,7 @@ test("private routes, sign-in, daily capture, effort, planning, journal, analyti
     page.getByRole("heading", { name: "A record of your attention" }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "All intentions", exact: false })
+    .getByRole("button", { name: "Tasks", exact: true })
     .first()
     .click();
   await page.getByLabel("Status filter").selectOption("ALL");
@@ -94,10 +97,9 @@ test("private routes, sign-in, daily capture, effort, planning, journal, analyti
   await page.getByRole("button", { name: "Archive task", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "Open navigation" }).click();
-  await page.getByRole("button", { name: "Today", exact: true }).click();
+  await page.getByRole("button", { name: "Tracker", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Make room for what matters." }),
+    page.getByRole("heading", { name: "Your days, across your life." }),
   ).toBeVisible();
   expect(
     await page.evaluate(
@@ -105,7 +107,6 @@ test("private routes, sign-in, daily capture, effort, planning, journal, analyti
     ),
   ).toBe(true);
   await page.screenshot({ path: "docs/mobile-preview.png", fullPage: true });
-  await page.getByRole("button", { name: "Open navigation" }).click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/login/);
   expect((await page.request.get("/api/workspace")).status()).toBe(401);

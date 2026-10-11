@@ -154,3 +154,15 @@ Do not commit dumps. Encrypt them at rest, restrict file permissions, and test r
 - `docs`: schema dictionary, ER diagram, architecture, verification.
 
 See [architecture and MVP boundaries](docs/architecture.md) and the [full schema dictionary](docs/schema.md).
+
+## Category tracker
+
+The home screen is a seven-day sheet: dates on the left, active parent categories across the top. Each column includes all its descendants. Use Previous/Next week or Jump to date for past logs and future plans. The top navigation keeps the other tools accessible.
+
+- **Plan** saves an intention on a date.
+- **Log** records an activity for today or an earlier date, optionally linked to an existing task and optionally timed. Repeated logs remain separate; recording work does not require completing the task.
+- **Journal** remains independent observation.
+
+Timed logs use existing effort entries; untimed logs use existing task events. No schema migration was needed. Actual activity dates are kept separate from the time the record was created. Entries without a date or category remain accessible below the sheet and in Tasks.
+
+The seed uses Environment Control, Health, Relationship, Sales & Marketing, Creativity, Operations, and Finances. For a workspace using the original sample categories, run `npm run db:categories` once. It creates/reuses these roots and nests the original sample categories while preserving tasks and history. Do not rerun it after intentionally reorganizing those sample categories.

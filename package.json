@@ -16,6 +16,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:dev": "prisma migrate dev",
+    "db:categories": "tsx scripts/setup-categories.ts",
     "db:seed": "tsx prisma/seed.ts",
     "db:local": "tsx scripts/local-db.ts",
     "auth:password": "tsx scripts/password.ts",

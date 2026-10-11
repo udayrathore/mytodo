@@ -12,20 +12,14 @@ import {
   Plus,
   Search,
   ChevronRight,
-  ArrowUpRight,
   Check,
   LogOut,
-  Menu,
   X,
   RefreshCw,
-  ArrowRight,
-  Clock3,
-  Leaf,
   Bell,
 } from "lucide-react";
 import type { Workspace as Data, Task } from "@/lib/workspace";
-import { activeStatuses, descendants, dateKey } from "@/lib/domain";
-import { effortTotal } from "@/lib/analytics";
+import { activeStatuses, descendants } from "@/lib/domain";
 import {
   NoticeContext,
   Drawer,
@@ -34,6 +28,7 @@ import {
   duration,
   displayDate,
 } from "./ui";
+import { CategoryGrid } from "./category-grid";
 import { TaskForm } from "./task-form";
 import { TaskDetail } from "./task-detail";
 import { JournalView } from "./journal";
@@ -41,9 +36,9 @@ import { Library } from "./library";
 import { Planning } from "./planning";
 import { Insights, Timeline } from "./insights";
 const nav = [
-  { id: "today", name: "Today", icon: Sun },
+  { id: "today", name: "Tracker", icon: Sun },
   { id: "week", name: "Weekly plan", icon: CalendarDays },
-  { id: "tasks", name: "All intentions", icon: Inbox },
+  { id: "tasks", name: "Tasks", icon: Inbox },
   { id: "journal", name: "Journal", icon: BookOpen },
   { id: "timeline", name: "Timeline", icon: History },
   { id: "insights", name: "Insights", icon: ChartNoAxesCombined },
@@ -53,9 +48,9 @@ const headings: Record<
   { title: string; subtitle: string; eyebrow: string }
 > = {
   today: {
-    title: "Make room for what matters.",
-    subtitle: "A little intention. A little action. Space to notice.",
-    eyebrow: "Your daily workspace",
+    title: "Your days, across your life.",
+    subtitle: "Plan what’s next. Record what happened. One row at a time.",
+    eyebrow: "Daily tracker",
   },
   week: {
     title: "A week, thoughtfully considered.",
@@ -99,7 +94,6 @@ export function Workspace({ initial }: { initial: Data }) {
   const [archive, setArchive] = useState(false);
   const [priority, setPriority] = useState("");
   const [drawer, setDrawer] = useState<string | null>(null);
-  const [mobile, setMobile] = useState(false);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(
     null,
   );
@@ -175,7 +169,6 @@ export function Workspace({ initial }: { initial: Data }) {
   function navigate(next: string, cat = "") {
     setView(next);
     setCategory(cat);
-    setMobile(false);
     setVisible(60);
     window.history.replaceState({}, "", `/?view=${next}`);
   }
@@ -200,21 +193,6 @@ export function Workspace({ initial }: { initial: Data }) {
     )
       setCapture("");
   }
-  const open = data.tasks.filter(
-    (t) => !t.archivedAt && activeStatuses.has(t.status),
-  );
-  const daily = data.tasks
-    .filter(
-      (t) =>
-        !t.archivedAt &&
-        t.plannedDate?.slice(0, 10) === data.today &&
-        t.status !== "CANCELLED",
-    )
-    .sort(
-      (a, b) =>
-        (a.status === "COMPLETED" ? 1 : 0) - (b.status === "COMPLETED" ? 1 : 0),
-    );
-  const dailyDone = daily.filter((t) => t.status === "COMPLETED");
   const categoryIds = category ? descendants(data.categories, category) : null;
   const filtered = data.tasks.filter(
     (t) =>
@@ -234,35 +212,6 @@ export function Workspace({ initial }: { initial: Data }) {
   );
   const selected = data.tasks.find((t) => t.id === drawer);
   const heading = headings[view];
-  function categoryTree(
-    parentId: string | null = null,
-    depth = 0,
-  ): React.ReactNode {
-    return data.categories
-      .filter((c) => c.parentId === parentId && c.isActive)
-      .map((c) => (
-        <div key={c.id}>
-          <button
-            className={"category-nav " + (category === c.id ? "active" : "")}
-            style={{ paddingLeft: 18 + depth * 14 }}
-            onClick={() => navigate("tasks", c.id)}
-          >
-            <span className={"category-dot color-" + (depth % 3)} />
-            <span>{c.name}</span>
-            <small>
-              {
-                open.filter(
-                  (t) =>
-                    t.primaryCategoryId &&
-                    descendants(data.categories, c.id).has(t.primaryCategoryId),
-                ).length
-              }
-            </small>
-          </button>
-          {categoryTree(c.id, depth + 1)}
-        </div>
-      ));
-  }
   const taskRows = (tasks: Task[], empty = "Nothing here, for now.") => (
     <div className="task-list">
       {tasks.map((t) => (
@@ -348,129 +297,38 @@ export function Workspace({ initial }: { initial: Data }) {
     </div>
   );
   const due = data.reminders.filter((r) => r.status === "DELIVERED");
-  const inbox = open.filter((t) => t.status === "INBOX");
-  const todayMinutes = data.tasks
-    .flatMap((t) => t.effort)
-    .filter((e) => e.occurredOn.slice(0, 10) === data.today)
-    .reduce((n, e) => n + e.minutes, 0);
   return (
     <NoticeContext.Provider value={notice}>
-      <div className="app-shell">
+      <div className="app-shell tracker-shell">
         <a className="skip-link" href="#main">
           Skip to content
         </a>
-        {mobile && (
-          <button
-            className="mobile-scrim"
-            aria-label="Close navigation"
-            onClick={() => setMobile(false)}
-          />
-        )}
-        <aside className={"sidebar " + (mobile ? "mobile-open" : "")}>
-          <a className="brand" href="/">
-            <span className="brand-mark">
-              <Aperture size={24} strokeWidth={1.6} />
-            </span>
-            <div>
-              Still<span>PERSONAL INTELLIGENCE</span>
-            </div>
-          </a>
-          <button
-            className="capture-button"
-            onClick={() => {
-              setDrawer("new");
-              setMobile(false);
-            }}
-          >
-            <Plus size={18} /> Capture an intention <kbd>N</kbd>
-          </button>
-          <span className="nav-label">WORKSPACE</span>
-          <nav aria-label="Main navigation">
-            {nav.map((n) => (
-              <button
-                className={
-                  "nav-item " + (view === n.id && !category ? "active" : "")
-                }
-                key={n.id}
-                onClick={() => navigate(n.id)}
-              >
-                <n.icon size={18} strokeWidth={1.7} />
-                <span>{n.name}</span>
-                {n.id === "tasks" && <small>{open.length}</small>}
-                {n.id === "today" && <span className="nav-today-dot" />}
-              </button>
-            ))}
-          </nav>
-          <div className="nav-label label-row">
-            <span>AREAS OF LIFE</span>
-            <button
-              className="icon-button"
-              aria-label="Manage categories"
-              onClick={() => navigate("library")}
-            >
-              <Plus size={14} />
-            </button>
-          </div>
-          <div className="category-tree">
-            {categoryTree()}
-            {!data.categories.length && (
-              <button
-                className="category-nav"
-                onClick={() => navigate("library")}
-              >
-                Add an area of life
-              </button>
-            )}
-          </div>
-          <div className="sidebar-bottom">
-            <button
-              className={"nav-item " + (view === "library" ? "active" : "")}
-              onClick={() => navigate("library")}
-            >
-              <LibraryBig size={18} />
-              <span>Library & templates</span>
-            </button>
-            <div className="profile">
-              <span className="avatar">{data.user.name.slice(0, 1)}</span>
-              <div>
-                <strong>{data.user.name}</strong>
-                <small>Personal workspace</small>
-              </div>
-              <button
-                className="icon-button"
-                aria-label="Sign out"
-                onClick={async () => {
-                  await fetch("/api/logout", { method: "POST" });
-                  window.location.href = "/login";
-                }}
-              >
-                <LogOut size={16} />
-              </button>
-            </div>
-          </div>
-        </aside>
         <div className="main-shell">
-          <header className="topbar">
-            <div className="breadcrumb">
-              <button
-                className="icon-button mobile-menu"
-                aria-label="Open navigation"
-                onClick={() => setMobile(true)}
-              >
-                <Menu size={20} />
-              </button>
-              <span>My workspace</span>
-              <ChevronRight size={13} />
-              <strong>
-                {category
-                  ? data.categories.find((c) => c.id === category)?.name
-                  : nav.find((n) => n.id === view)?.name || "Library"}
-              </strong>
-            </div>
-            <div className="topbar-right">
-              <span className="private-label">
-                <span /> Private, by design
+          <header className="tracker-topbar">
+            <a className="brand" href="/">
+              <span className="brand-mark">
+                <Aperture size={24} strokeWidth={1.6} />
               </span>
+              <div>
+                Still<span>PERSONAL INTELLIGENCE</span>
+              </div>
+            </a>
+            <nav aria-label="Main navigation" className="top-navigation">
+              {[
+                ...nav,
+                { id: "library", name: "Library", icon: LibraryBig },
+              ].map((n) => (
+                <button
+                  key={n.id}
+                  className={view === n.id ? "active" : ""}
+                  onClick={() => navigate(n.id)}
+                >
+                  <n.icon size={16} />
+                  <span>{n.name}</span>
+                </button>
+              ))}
+            </nav>
+            <div className="top-actions">
               <button
                 className="icon-button"
                 aria-label="Refresh workspace"
@@ -480,7 +338,23 @@ export function Workspace({ initial }: { initial: Data }) {
                   )
                 }
               >
-                <RefreshCw size={15} className={saving ? "spin" : ""} />
+                <RefreshCw size={16} className={saving ? "spin" : ""} />
+              </button>
+              <button
+                className="button primary"
+                onClick={() => setDrawer("new")}
+              >
+                <Plus size={16} /> New task
+              </button>
+              <button
+                className="icon-button"
+                aria-label="Sign out"
+                onClick={async () => {
+                  await fetch("/api/logout", { method: "POST" });
+                  window.location.href = "/login";
+                }}
+              >
+                <LogOut size={16} />
               </button>
             </div>
           </header>
@@ -538,7 +412,7 @@ export function Workspace({ initial }: { initial: Data }) {
                 </div>
               </div>
             )}
-            {["today", "tasks"].includes(view) && (
+            {view === "tasks" && (
               <form className="quick-capture" onSubmit={quickCapture}>
                 <Plus size={21} />
                 <input
@@ -546,11 +420,7 @@ export function Workspace({ initial }: { initial: Data }) {
                   maxLength={240}
                   value={capture}
                   onChange={(e) => setCapture(e.target.value)}
-                  placeholder={
-                    view === "today"
-                      ? "What would you like to make room for today?"
-                      : "Capture an intention…"
-                  }
+                  placeholder="Capture an intention…"
                   required
                 />
                 <button disabled={saving} type="submit">
@@ -559,140 +429,30 @@ export function Workspace({ initial }: { initial: Data }) {
               </form>
             )}
             {view === "today" && (
-              <div className="daily-grid">
-                <div>
-                  <section className="panel today-panel">
-                    <div className="section-heading">
-                      <h2>
-                        Today’s intentions{" "}
-                        <span className="count">{daily.length}</span>
-                      </h2>
-                      <span className="muted small">
-                        {dailyDone.length} complete
-                      </span>
-                    </div>
-                    {taskRows(daily, "Your day has room.")}
-                    <button
-                      className="panel-link"
-                      onClick={() => setDrawer("new")}
-                    >
-                      <Plus size={16} /> Add an intention
-                    </button>
-                  </section>
-                  <section className="panel inbox-panel">
-                    <div className="section-heading">
-                      <div>
-                        <h2>
-                          A thought for later{" "}
-                          <span className="count">{inbox.length}</span>
-                        </h2>
-                        <p className="muted small">
-                          Safely captured. No date needed.
-                        </p>
-                      </div>
-                      <button
-                        className="text-button"
-                        onClick={() => {
-                          navigate("tasks");
-                          setStatus("INBOX");
-                        }}
-                      >
-                        View inbox <ArrowUpRight size={14} />
-                      </button>
-                    </div>
-                    {taskRows(
-                      inbox.slice(0, 3),
-                      "Nothing waiting in your inbox.",
-                    )}
-                  </section>
-                  <div className="philosophy">
-                    <Leaf size={18} />
-                    <span>
-                      Not everything needs to be finished today. It just needs a
-                      place.
-                    </span>
-                  </div>
-                </div>
-                <aside className="daily-aside">
-                  <section className="attention-card">
-                    <div className="card-overline">
-                      <span>A LITTLE PERSPECTIVE</span>
-                      <Aperture size={18} />
-                    </div>
-                    <h2>
-                      Attention, gently
-                      <br />
-                      accounted for.
-                    </h2>
-                    <div className="attention-stats">
-                      <div>
-                        <strong>{duration(todayMinutes)}</strong>
-                        <span>effort recorded</span>
-                      </div>
-                      <div>
-                        <strong>
-                          {dailyDone.length}
-                          <small> / {daily.length}</small>
-                        </strong>
-                        <span>intentions complete</span>
-                      </div>
-                    </div>
-                    <div className="progress-track">
-                      <span
-                        style={{
-                          width: `${daily.length ? (dailyDone.length / daily.length) * 100 : 0}%`,
-                        }}
-                      />
-                    </div>
-                    <p>A record of the day. Never a score.</p>
-                    <button onClick={() => navigate("insights")}>
-                      Explore your patterns <ArrowUpRight size={16} />
-                    </button>
-                  </section>
-                  <section className="reflection-card">
-                    <div className="card-overline">
-                      <span>PAUSE & NOTICE</span>
-                      <BookOpen size={18} />
-                    </div>
-                    <h2>
-                      What’s becoming
-                      <br />a little clearer?
-                    </h2>
-                    <p>
-                      An observation doesn’t need an outcome. Just a few words
-                      to come back to.
-                    </p>
-                    <button
-                      className="button"
-                      onClick={() => navigate("journal")}
-                    >
-                      Open your journal <ArrowRight size={16} />
-                    </button>
-                  </section>
-                  {data.journals.find((j) => !j.archivedAt) && (
-                    <section className="recent-note">
-                      <span className="eyebrow">A recent observation</span>
-                      <h3>{data.journals.find((j) => !j.archivedAt)?.title}</h3>
-                      <p>
-                        {data.journals
-                          .find((j) => !j.archivedAt)
-                          ?.content.slice(0, 165)}
-                        …
-                      </p>
-                      <button
-                        className="text-button"
-                        onClick={() => navigate("journal")}
-                      >
-                        Keep reading <ArrowUpRight size={14} />
-                      </button>
-                    </section>
-                  )}
-                </aside>
-              </div>
+              <CategoryGrid
+                data={data}
+                save={save}
+                openTask={openTask}
+                openCategory={(id) => navigate("tasks", id)}
+              />
             )}
             {view === "tasks" && (
               <>
                 <div className="filters">
+                  <select
+                    aria-label="Category filter"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                  >
+                    <option value="">All categories</option>
+                    {data.categories
+                      .filter((c) => c.isActive)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
                   <div className="search-box">
                     <Search size={16} />
                     <input

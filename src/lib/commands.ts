@@ -2,6 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { database } from "./db";
 import {
   asDate,
+  dateKey,
   commandSchema,
   validateFields,
   descendants,
@@ -129,6 +130,75 @@ export async function executeCommand(userId: string, input: unknown) {
           },
         });
       switch (c.type) {
+        case "activity.log": {
+          const owner = await tx.user.findUniqueOrThrow({
+            where: { id: userId },
+          });
+          if (c.occurredOn > dateKey(new Date(), owner.timezone))
+            throw new DomainError(
+              "Future work belongs in a plan. Log activity for today or an earlier date.",
+            );
+          const category = await tx.category.findFirst({
+            where: { id: c.primaryCategoryId, userId, isActive: true },
+          });
+          if (!category) throw new DomainError("Category unavailable.");
+          if (!c.taskId && !c.title)
+            throw new DomainError("Give this activity a title.");
+          const task = c.taskId
+            ? await taskFor(tx, userId, c.taskId)
+            : await tx.task.create({
+                data: {
+                  userId,
+                  title: c.title!,
+                  primaryCategoryId: category.id,
+                  status: "IN_PROGRESS",
+                },
+              });
+          if (task.archivedAt || task.status === "CANCELLED")
+            throw new DomainError("Choose an active task.");
+          if (task.primaryCategoryId !== category.id)
+            throw new DomainError("The activity category must match its task.");
+          if (!c.taskId)
+            await event(task.id, "CREATED", undefined, {
+              title: task.title,
+              status: task.status,
+            });
+          const effort =
+            c.minutes === null
+              ? null
+              : await tx.taskEffortEntry.create({
+                  data: {
+                    userId,
+                    taskId: task.id,
+                    minutes: c.minutes,
+                    occurredOn: asDate(c.occurredOn)!,
+                    note: c.note,
+                  },
+                });
+          await event(task.id, "EFFORT_RECORDED", undefined, {
+            occurredOn: c.occurredOn,
+            note: c.note,
+            minutes: c.minutes,
+            effortEntryId: effort?.id ?? null,
+          });
+          if (c.complete && task.status !== "COMPLETED") {
+            await tx.task.update({
+              where: { id: task.id },
+              data: {
+                status: "COMPLETED",
+                completedAt: new Date(),
+                version: { increment: 1 },
+              },
+            });
+            await event(
+              task.id,
+              "COMPLETED",
+              { status: task.status },
+              { status: "COMPLETED" },
+            );
+          }
+          return { id: task.id };
+        }
         case "task.create": {
           if (
             c.templateId &&

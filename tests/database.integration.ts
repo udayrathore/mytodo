@@ -186,3 +186,67 @@ test("journal is independent and supports owner-checked associations", async () 
     /not found/,
   );
 });
+
+test("activity logging supports repeated dated entries with optional time and owner validation", async () => {
+  const category = await db.category.create({
+    data: { userId: uid, name: "Tracker tests", slug: "tracker-tests" },
+  });
+  const created = await executeCommand(uid, {
+    type: "activity.log",
+    title: "Practice",
+    primaryCategoryId: category.id,
+    occurredOn: "2026-01-02",
+    note: "First session",
+  });
+  const id = created!.id;
+  await executeCommand(uid, {
+    type: "activity.log",
+    taskId: id,
+    primaryCategoryId: category.id,
+    occurredOn: "2026-01-03",
+    minutes: 25,
+    note: "Second session",
+    complete: true,
+  });
+  const task = await db.task.findUniqueOrThrow({
+    where: { id },
+    include: { effort: true, events: true },
+  });
+  assert.equal(task.plannedDate, null);
+  assert.equal(task.status, "COMPLETED");
+  assert.equal(task.effort.length, 1);
+  assert.equal(task.effort[0].minutes, 25);
+  const logs = task.events.filter((e) => e.eventType === "EFFORT_RECORDED");
+  assert.equal(logs.length, 2);
+  assert.equal(
+    (
+      logs.find(
+        (e) =>
+          (e.toValue as { occurredOn: string }).occurredOn === "2026-01-02",
+      )!.toValue as { minutes: number | null }
+    ).minutes,
+    null,
+  );
+  await assert.rejects(
+    executeCommand(other.id, {
+      type: "activity.log",
+      taskId: id,
+      primaryCategoryId: category.id,
+      occurredOn: "2026-01-03",
+    }),
+    /Category unavailable/,
+  );
+  await assert.rejects(
+    executeCommand(uid, {
+      type: "activity.log",
+      title: "Future activity",
+      primaryCategoryId: category.id,
+      occurredOn: "2999-01-01",
+    }),
+    /Future work/,
+  );
+  assert.equal(
+    await db.task.count({ where: { userId: uid, title: "Future activity" } }),
+    0,
+  );
+});

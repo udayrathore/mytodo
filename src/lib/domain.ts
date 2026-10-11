@@ -60,6 +60,16 @@ const taskFields = {
 };
 export const commandSchema = z.discriminatedUnion("type", [
   z.object({
+    type: z.literal("activity.log"),
+    taskId: id.nullable().default(null),
+    title: title.optional(),
+    primaryCategoryId: id,
+    occurredOn: dateOnly,
+    minutes: z.number().int().min(1).max(1440).nullable().default(null),
+    note: text.default(""),
+    complete: z.boolean().default(false),
+  }),
+  z.object({
     type: z.literal("task.create"),
     ...taskFields,
     templateId: nullableId,

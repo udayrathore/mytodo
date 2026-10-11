@@ -179,17 +179,32 @@ export function Timeline({
   const [filter, setFilter] = useState("All");
   const [limit, setLimit] = useState(60);
   const rows = [
-    ...data.events.map((e) => ({
-      id: e.id,
-      at: e.occurredAt,
-      kind: ["CREATED", "PLANNED", "RESCHEDULED"].includes(e.eventType)
-        ? "Intention"
-        : "Action",
-      dateOnly: false,
-      title: human(e.eventType),
-      text: data.tasks.find((t) => t.id === e.taskId)?.title || "Task",
-      taskId: e.taskId,
-    })),
+    ...data.events
+      .filter(
+        (e) => !(e.eventType === "EFFORT_RECORDED" && e.toValue?.effortEntryId),
+      )
+      .map((e) => ({
+        id: e.id,
+        at:
+          typeof e.toValue?.occurredOn === "string"
+            ? e.toValue.occurredOn
+            : e.occurredAt,
+        kind: ["CREATED", "PLANNED", "RESCHEDULED"].includes(e.eventType)
+          ? "Intention"
+          : "Action",
+        dateOnly: typeof e.toValue?.occurredOn === "string",
+        title:
+          e.eventType === "EFFORT_RECORDED"
+            ? "Activity logged"
+            : human(e.eventType),
+        text: [
+          data.tasks.find((t) => t.id === e.taskId)?.title || "Task",
+          typeof e.toValue?.note === "string" ? e.toValue.note : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        taskId: e.taskId,
+      })),
     ...data.tasks.flatMap((t) =>
       t.effort.map((e) => ({
         id: e.id,

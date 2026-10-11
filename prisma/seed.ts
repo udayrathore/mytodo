@@ -31,14 +31,18 @@ await db.$transaction(
       sortOrder = 0,
     ) =>
       tx.category.create({ data: { userId, name, slug, parentId, sortOrder } });
-    const work = await cat("Work", "work", null, 0);
-    const design = await cat("Design & craft", "design", work.id, 0);
-    const business = await cat("Business", "business", work.id, 1);
+    await cat("Environment Control", "environment-control", null, 0);
     const health = await cat("Health", "health", null, 1);
+    await cat("Relationship", "relationship", null, 2);
+    const sales = await cat("Sales & Marketing", "sales-marketing", null, 3);
+    const creativity = await cat("Creativity", "creativity", null, 4);
+    await cat("Operations", "operations", null, 5);
+    await cat("Finances", "finances", null, 6);
+    const design = await cat("Design & craft", "design", creativity.id, 0);
+    const business = await cat("Business", "business", sales.id, 0);
     const movement = await cat("Movement", "movement", health.id);
-    const personal = await cat("Personal", "personal", null, 2);
-    const music = await cat("Guitar", "guitar", personal.id);
-    await cat("Reading", "reading", personal.id, 1);
+    const music = await cat("Guitar", "guitar", creativity.id, 1);
+    await cat("Reading", "reading", creativity.id, 2);
     const deep = await tx.tag.create({
       data: { userId, name: "deep work", slug: "deep-work" },
     });

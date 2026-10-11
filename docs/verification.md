@@ -6,8 +6,8 @@
 | --- | --- |
 | Prisma format, validation/generation | Passed with Prisma 7.10.0 |
 | Both checked-in SQL migrations | Applied to local PostgreSQL WASM; independently executed in isolated constraint tests |
-| Domain unit tests | 6 passed |
-| Database / command integration tests | 8 passed |
+| Domain and tracker unit tests | 8 passed |
+| Database / command integration tests | 9 passed |
 | Authenticated HTTP security/workflow test | 1 passed |
 | TypeScript `tsc --noEmit` | Passed |
 | Optimized Next.js production build | Passed; all private pages and APIs are dynamic |
@@ -59,3 +59,9 @@ npm audit
 ```
 
 On a machine that permits headless Chromium, also run the browser suite as described in the README. Before first real use, run migrations and the same security/workflow checks against a disposable Neon branch, then deploy production with a unique password.
+
+## Category-grid update
+
+The production preview was checked with seven parent columns, dates on the left, sticky column/date headings and top navigation. Browser checks saved an untimed activity with notes, opened its history, and saved a future plan in Movement that appeared under Health. Temporary browser-check tasks were archived afterward. A 390px mobile viewport kept document width at 390px while the sheet scrolled independently.
+
+New automated checks cover plans versus activity dates, timed-log deduplication, arbitrary-depth category rollup, repeated logs, optional minutes, owner boundaries and rejecting future activity atomically. No Prisma schema or migrations changed.
