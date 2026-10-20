@@ -250,3 +250,288 @@ test("activity logging supports repeated dated entries with optional time and ow
     0,
   );
 });
+
+test("repeat series preserve occurrence identity and completion while supporting scoped edits and schedule changes", async () => {
+  const { addDays, dateKey } = await import("../src/lib/domain");
+  const { ensureRecurringTasks } = await import(
+    "../src/lib/recurrence-service"
+  );
+  const today = dateKey(new Date(), "Asia/Kolkata");
+  const created = await executeCommand(uid, {
+    type: "task.create",
+    title: "Repeat test",
+    plannedDate: today,
+    color: "blue",
+    icon: "book",
+    repeat: { unit: "DAY", interval: 1, endsOn: addDays(today, 10) },
+  });
+  let original = await db.task.findUniqueOrThrow({
+    where: { id: created!.id },
+  });
+  const sid = original.seriesId!;
+  assert.ok(sid);
+  assert.equal(await db.task.count({ where: { seriesId: sid } }), 11);
+  await Promise.all([
+    ensureRecurringTasks(uid, today),
+    ensureRecurringTasks(uid, today),
+  ]);
+  assert.equal(await db.task.count({ where: { seriesId: sid } }), 11);
+  await executeCommand(uid, {
+    type: "task.status",
+    id: original.id,
+    version: original.version,
+    status: "COMPLETED",
+  });
+  const second = await db.task.findFirstOrThrow({
+    where: {
+      seriesId: sid,
+      recurrenceDate: new Date(addDays(today, 1) + "T00:00:00Z"),
+    },
+  });
+  await executeCommand(uid, {
+    type: "task.update",
+    id: second.id,
+    version: second.version,
+    title: "Only this one",
+    status: "PLANNED",
+    plannedDate: addDays(today, 1),
+    color: "rose",
+    icon: "heart",
+  });
+  let series = await db.taskSeries.findUniqueOrThrow({ where: { id: sid } });
+  original = await db.task.findUniqueOrThrow({ where: { id: original.id } });
+  await executeCommand(uid, {
+    type: "task.update",
+    id: original.id,
+    version: original.version,
+    scope: "ALL",
+    seriesVersion: series.version,
+    title: "Whole series",
+    status: "PLANNED",
+    color: "purple",
+    icon: "star",
+  });
+  const all = await db.task.findMany({ where: { seriesId: sid } });
+  assert.ok(
+    all.every(
+      (t) =>
+        t.title === "Whole series" && t.color === "purple" && t.icon === "star",
+    ),
+  );
+  assert.equal(all.find((t) => t.id === original.id)!.status, "COMPLETED");
+  assert.equal(
+    all
+      .find((t) => t.id === second.id)!
+      .plannedDate!.toISOString()
+      .slice(0, 10),
+    addDays(today, 1),
+  );
+  assert.ok(all.find((t) => t.id === second.id)!.isException);
+  series = await db.taskSeries.findUniqueOrThrow({ where: { id: sid } });
+  await executeCommand(uid, {
+    type: "series.schedule",
+    id: sid,
+    version: series.version,
+    repeat: { unit: "WEEK", interval: 1, endsOn: addDays(today, 120) },
+    active: true,
+  });
+  const remaining = await db.task.findMany({
+    where: { seriesId: sid, archivedAt: null },
+    orderBy: { plannedDate: "asc" },
+  });
+  assert.ok(remaining.some((t) => t.id === second.id));
+  assert.equal(
+    remaining.find((t) => t.id === original.id)!.status,
+    "COMPLETED",
+  );
+  assert.ok(
+    remaining
+      .filter((t) => t.id !== second.id)
+      .every(
+        (t) =>
+          Math.round(
+            (t.plannedDate!.getTime() -
+              new Date(today + "T00:00:00Z").getTime()) /
+              86400000,
+          ) %
+            7 ===
+          0,
+      ),
+  );
+  await ensureRecurringTasks(uid, today, addDays(today, 120));
+  assert.ok(
+    (
+      await db.task.findMany({ where: { seriesId: sid, archivedAt: null } })
+    ).every((t) => t.title === "Whole series" && t.color === "purple"),
+  );
+  series = await db.taskSeries.findUniqueOrThrow({ where: { id: sid } });
+  await executeCommand(uid, {
+    type: "series.schedule",
+    id: sid,
+    version: series.version,
+    repeat: { unit: "WEEK", interval: 1, endsOn: addDays(today, 120) },
+    active: false,
+  });
+  assert.equal(
+    await db.task.count({ where: { seriesId: sid, archivedAt: null } }),
+    2,
+  );
+  await assert.rejects(
+    executeCommand(other.id, {
+      type: "series.schedule",
+      id: sid,
+      version: 0,
+      repeat: { unit: "DAY", interval: 1 },
+      active: true,
+    }),
+    /not found/,
+  );
+  await assert.rejects(
+    executeCommand(uid, {
+      type: "task.create",
+      title: "Bad repeat",
+      plannedDate: today,
+      repeat: { unit: "DAY", interval: 1, endsOn: addDays(today, -1) },
+    }),
+    /end/,
+  );
+  assert.equal(
+    await db.task.count({ where: { userId: uid, title: "Bad repeat" } }),
+    0,
+  );
+});
+
+test("repeat occurrences copy typed fields and links, while manually archived occurrences stay archived", async () => {
+  const { addDays, dateKey } = await import("../src/lib/domain");
+  const { ensureRecurringTasks } = await import(
+    "../src/lib/recurrence-service"
+  );
+  const today = dateKey(new Date(), "Asia/Kolkata");
+  const template = await executeCommand(uid, {
+    type: "template.create",
+    name: "Repeat template",
+    fields: [
+      { key: "focus", label: "Focus", fieldType: "TEXT", required: true },
+    ],
+  });
+  const field = await db.taskTemplateField.findFirstOrThrow({
+    where: { templateId: template!.id },
+  });
+  const tag = await db.tag.create({
+    data: { userId: uid, name: "repeat test", slug: "repeat-test" },
+  });
+  const result = await executeCommand(uid, {
+    type: "task.create",
+    title: "Typed repeat",
+    plannedDate: today,
+    templateId: template!.id,
+    fields: { [field.id]: "Breathing" },
+    tagIds: [tag.id],
+    repeat: { unit: "DAY", interval: 1, endsOn: addDays(today, 2) },
+  });
+  const first = await db.task.findUniqueOrThrow({ where: { id: result!.id } });
+  const generated = await db.task.findFirstOrThrow({
+    where: { seriesId: first.seriesId, id: { not: first.id } },
+    include: { fieldValues: true, tags: true },
+  });
+  assert.equal(generated.fieldValues[0].textValue, "Breathing");
+  assert.equal(generated.tags[0].tagId, tag.id);
+  await executeCommand(uid, {
+    type: "task.archive",
+    id: generated.id,
+    version: generated.version,
+    archived: true,
+  });
+  let series = await db.taskSeries.findUniqueOrThrow({
+    where: { id: first.seriesId! },
+  });
+  await executeCommand(uid, {
+    type: "series.schedule",
+    id: series.id,
+    version: series.version,
+    repeat: { unit: "DAY", interval: 1, endsOn: addDays(today, 2) },
+    active: false,
+  });
+  series = await db.taskSeries.findUniqueOrThrow({ where: { id: series.id } });
+  await executeCommand(uid, {
+    type: "series.schedule",
+    id: series.id,
+    version: series.version,
+    repeat: { unit: "DAY", interval: 1, endsOn: addDays(today, 2) },
+    active: true,
+  });
+  await ensureRecurringTasks(uid, today);
+  assert.ok(
+    (await db.task.findUniqueOrThrow({ where: { id: generated.id } }))
+      .archivedAt,
+  );
+  assert.equal(
+    await db.task.count({ where: { seriesId: series.id, archivedAt: null } }),
+    2,
+  );
+  await assert.rejects(
+    executeCommand(uid, {
+      type: "series.schedule",
+      id: series.id,
+      version: series.version,
+      repeat: { unit: "DAY", interval: 1 },
+      active: false,
+    }),
+    /changed/,
+  );
+});
+
+test("whole-series metadata edits do not promote an occurrence’s custom values into future defaults", async () => {
+  const { addDays, dateKey } = await import("../src/lib/domain");
+  const today = dateKey(new Date(), "Asia/Kolkata");
+  const template = await executeCommand(uid, {
+    type: "template.create",
+    name: "Repeat default isolation",
+    fields: [
+      { key: "focus", label: "Focus", fieldType: "TEXT", required: true },
+    ],
+  });
+  const field = await db.taskTemplateField.findFirstOrThrow({
+    where: { templateId: template!.id },
+  });
+  const result = await executeCommand(uid, {
+    type: "task.create",
+    title: "Default isolation",
+    plannedDate: today,
+    templateId: template!.id,
+    fields: { [field.id]: "Original" },
+    repeat: { unit: "DAY", interval: 1, endsOn: today },
+  });
+  const t = await db.task.findUniqueOrThrow({ where: { id: result!.id } });
+  await executeCommand(uid, {
+    type: "task.fields",
+    id: t.id,
+    fields: { [field.id]: "One occurrence only" },
+  });
+  let series = await db.taskSeries.findUniqueOrThrow({
+    where: { id: t.seriesId! },
+  });
+  await executeCommand(uid, {
+    type: "task.update",
+    id: t.id,
+    version: t.version,
+    scope: "ALL",
+    seriesVersion: series.version,
+    title: "Shared new title",
+    status: "PLANNED",
+  });
+  series = await db.taskSeries.findUniqueOrThrow({ where: { id: series.id } });
+  await executeCommand(uid, {
+    type: "series.schedule",
+    id: series.id,
+    version: series.version,
+    repeat: { unit: "DAY", interval: 1, endsOn: addDays(today, 1) },
+    active: true,
+  });
+  const future = await db.task.findFirstOrThrow({
+    where: { seriesId: series.id, id: { not: t.id } },
+    include: { fieldValues: true },
+  });
+  assert.equal(future.title, "Shared new title");
+  assert.equal(future.fieldValues[0].textValue, "Original");
+});

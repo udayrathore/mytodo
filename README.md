@@ -170,3 +170,13 @@ The seed uses Environment Control, Health, Relationship, Sales & Marketing, Crea
 ## Task-first daily workflow
 
 My day opens on today. Click a cell, enter a title and add the task; its date and category are already filled in. Change Upcoming / Ongoing / Completed directly on the card, or use the checkbox to complete/reopen it. Each task appears once in the default view, even if it has several activity entries. Notes and other creation fields are under Add details. Historical activity is opt-in; supporting tools are under More. Past cells still record activity, while today and future cells create to-dos. Status events and analytics continue to use the existing data model.
+
+## Repeats, colors, and icons
+
+In Add details, choose Daily, Weekly, Monthly, or Custom interval (every 1–365 days/weeks/months), optionally ending on a specific date. Pick a color and icon there too. An existing dated task can be made recurring from its details. Monthly schedules retain their original day and clamp to the final day of shorter months.
+
+Each occurrence is a separate task. Completing, reopening, or archiving one does not affect the others. The task editor offers **This occurrence only** or **Every occurrence in this series**. Whole-series edits change shared details and appearance (including generated future occurrences), while preserving each occurrence’s date, due date, completion state, effort, and custom-field values. Edit the Repeat panel to change the schedule or pause/resume it. Schedule changes preserve past, completed, ongoing, individually edited, and activity-bearing tasks. They soft-archive only untouched, unstarted future dates removed from the schedule.
+
+Migration `202610200001_repeating_tasks` adds `task_series` and task appearance/occurrence columns, with ownership checks and a unique series/date constraint. Apply it with `npm run db:migrate` on Neon or `npm run db:local:migrate` for the local preview. Existing tasks and history are retained.
+
+Occurrences materialize on workspace access: 90 days ahead by default and through the selected calendar range, up to two years ahead. An empty end date means the rule continues; refreshes extend the window over time. No background scheduler is required, and the app does not claim to send notifications while closed. Converting an old task preserves that original occurrence and begins generating from today, without fabricating a historical backlog. The repeat blueprint snapshots creation defaults; typed fields, tags and entity links copy to new occurrences, while effort, completion, reminders and planning-period memberships do not.

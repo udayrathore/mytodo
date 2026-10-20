@@ -1,5 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 import { database } from "./db";
+import { attachSeries, changeSchedule } from "./recurrence-service";
 import {
   asDate,
   dateKey,
@@ -108,6 +109,7 @@ export async function executeCommand(userId: string, input: unknown) {
   const c = commandSchema.parse(input);
   return database().$transaction(
     async (tx) => {
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId}::uuid FOR UPDATE`;
       const event = async (
         taskId: string,
         eventType: Parameters<
@@ -130,6 +132,23 @@ export async function executeCommand(userId: string, input: unknown) {
           },
         });
       switch (c.type) {
+        case "series.create": {
+          const task = await taskFor(tx, userId, c.id);
+          if (task.version !== c.version)
+            throw new ConflictError("Task changed. Refresh and try again.");
+          await attachSeries(tx, userId, task.id, c.repeat);
+          return { id: task.id };
+        }
+        case "series.schedule":
+          return changeSchedule(
+            tx,
+            userId,
+            c.id,
+            c.version,
+            c.repeat,
+            c.active,
+          );
+
         case "activity.log": {
           const owner = await tx.user.findUniqueOrThrow({
             where: { id: userId },
@@ -150,6 +169,8 @@ export async function executeCommand(userId: string, input: unknown) {
                 data: {
                   userId,
                   title: c.title!,
+                  color: c.color,
+                  icon: c.icon,
                   primaryCategoryId: category.id,
                   status: "IN_PROGRESS",
                 },
@@ -210,6 +231,8 @@ export async function executeCommand(userId: string, input: unknown) {
           const t = await tx.task.create({
             data: {
               userId,
+              color: c.color,
+              icon: c.icon,
               title: c.title,
               description: c.description,
               primaryCategoryId: c.primaryCategoryId,
@@ -228,6 +251,7 @@ export async function executeCommand(userId: string, input: unknown) {
             status: t.status,
             plannedDate: c.plannedDate,
           });
+          if (c.repeat) await attachSeries(tx, userId, t.id, c.repeat);
           return { id: t.id };
         }
         case "task.update":
@@ -238,6 +262,90 @@ export async function executeCommand(userId: string, input: unknown) {
             throw new ConflictError(
               "This task changed in another tab. Refresh and try again.",
             );
+          if (c.type === "task.update" && c.scope === "ALL") {
+            if (!old.seriesId)
+              throw new DomainError("This task has no repeat series.");
+            const series = await tx.taskSeries.findFirstOrThrow({
+              where: { id: old.seriesId, userId },
+            });
+            if (series.version !== c.seriesVersion)
+              throw new ConflictError("Series changed. Refresh and try again.");
+            const members = await tx.task.findMany({
+              where: { seriesId: series.id, userId },
+              include: { tags: true, entities: true },
+            });
+            // Apply shared details only: each occurrence retains its own schedule and status.
+            for (const member of members) {
+              await tx.task.update({
+                where: { id: member.id },
+                data: {
+                  title: c.title,
+                  description: c.description,
+                  primaryCategoryId: c.primaryCategoryId,
+                  priority: c.priority,
+                  estimatedMinutes: c.estimatedMinutes,
+                  color: c.color,
+                  icon: c.icon,
+                  version: { increment: 1 },
+                },
+              });
+              await links(tx, userId, member.id, c);
+              await event(
+                member.id,
+                "UPDATED",
+                {
+                  title: member.title,
+                  color: member.color,
+                  icon: member.icon,
+                  description: member.description,
+                  primaryCategoryId: member.primaryCategoryId,
+                  priority: member.priority,
+                  estimatedMinutes: member.estimatedMinutes,
+                  tagIds: member.tags.map((t) => t.tagId),
+                  entities: member.entities.map((e) => ({
+                    entityId: e.entityId,
+                    relationshipType: e.relationshipType,
+                  })),
+                },
+                {
+                  title: c.title,
+                  color: c.color,
+                  icon: c.icon,
+                  scope: "ALL",
+                  description: c.description,
+                  primaryCategoryId: c.primaryCategoryId,
+                  priority: c.priority,
+                  estimatedMinutes: c.estimatedMinutes,
+                  tagIds: c.tagIds,
+                  entityIds: c.entityIds,
+                  relationshipType: c.relationshipType,
+                  seriesId: series.id,
+                },
+              );
+            }
+            await tx.taskSeries.update({
+              where: { id: series.id },
+              data: {
+                blueprint: {
+                  ...(series.blueprint as Prisma.JsonObject),
+                  title: c.title,
+                  description: c.description,
+                  primaryCategoryId: c.primaryCategoryId,
+                  priority: c.priority,
+                  estimatedMinutes: c.estimatedMinutes,
+                  color: c.color,
+                  icon: c.icon,
+                  tags: [...new Set(c.tagIds)],
+                  entities: [...new Set(c.entityIds)].map((entityId) => ({
+                    entityId,
+                    relationshipType: c.relationshipType,
+                  })),
+                } as Prisma.InputJsonValue,
+                version: { increment: 1 },
+              },
+            });
+            return { id: old.id };
+          }
           if (c.type === "task.archive") {
             await tx.task.update({
               where: { id: old.id },
@@ -268,6 +376,9 @@ export async function executeCommand(userId: string, input: unknown) {
               data: {
                 ...statusData,
                 title: c.title,
+                color: c.color,
+                icon: c.icon,
+                isException: !!old.seriesId,
                 description: c.description,
                 primaryCategoryId: c.primaryCategoryId,
                 priority: c.priority,
@@ -306,6 +417,9 @@ export async function executeCommand(userId: string, input: unknown) {
               },
               {
                 title: c.title,
+                color: c.color,
+                icon: c.icon,
+                isException: !!old.seriesId,
                 description: c.description,
                 priority: c.priority,
                 dueAt: c.dueAt,
@@ -617,6 +731,6 @@ export async function executeCommand(userId: string, input: unknown) {
         }
       }
     },
-    { isolationLevel: "Serializable", timeout: 15000 },
+    { isolationLevel: "Serializable", timeout: 60000 },
   );
 }

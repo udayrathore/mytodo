@@ -5,9 +5,9 @@
 | Check | Result |
 | --- | --- |
 | Prisma format, validation/generation | Passed with Prisma 7.10.0 |
-| Both checked-in SQL migrations | Applied to local PostgreSQL WASM; independently executed in isolated constraint tests |
-| Domain and tracker unit tests | 8 passed |
-| Database / command integration tests | 9 passed |
+| All three checked-in SQL migrations | Applied to local PostgreSQL WASM; independently executed in isolated constraint tests |
+| Domain, tracker and recurrence unit tests | 11 passed |
+| Database / command integration tests | 13 passed |
 | Authenticated HTTP security/workflow test | 1 passed |
 | TypeScript `tsc --noEmit` | Passed |
 | Optimized Next.js production build | Passed; all private pages and APIs are dynamic |
@@ -65,3 +65,9 @@ On a machine that permits headless Chromium, also run the browser suite as descr
 The production preview was checked with seven parent columns, dates on the left, sticky column/date headings and top navigation. Browser checks saved an untimed activity with notes, opened its history, and saved a future plan in Movement that appeared under Health. Temporary browser-check tasks were archived afterward. A 390px mobile viewport kept document width at 390px while the sheet scrolled independently.
 
 New automated checks cover plans versus activity dates, timed-log deduplication, arbitrary-depth category rollup, repeated logs, optional minutes, owner boundaries and rejecting future activity atomically. No Prisma schema or migrations changed.
+
+## Recurrence update — 20 October 2026
+
+25 automated checks passed: 11 unit tests, 13 migration/command integration tests and one HTTP security test. New cases cover month-end/leap-year anchors, interval windows, repeat deduplication under concurrent refreshes, owner constraints, one-occurrence versus series edits, preserved completion, future inheritance, pausing/resuming, stale updates, manual-archive protection, typed-field/link cloning, per-occurrence custom-value isolation and appearance validation.
+
+The production browser check created a three-day daily series with a blue fitness icon, changed all three to a new title with purple/star styling, completed only the first, and paused the remaining two. Temporary verification tasks were archived afterward. The preview screenshot contains that temporary demonstration series. The production build passed using webpack (the local Turbopack process was restricted from opening its worker port).

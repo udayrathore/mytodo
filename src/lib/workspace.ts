@@ -1,12 +1,21 @@
 import { database } from "./db";
+import { ensureRecurringTasks } from "./recurrence-service";
 import { dateKey } from "./domain";
-export async function getWorkspace(user: {
-  id: string;
-  name: string;
-  timezone: string;
-}) {
+export async function getWorkspace(
+  user: {
+    id: string;
+    name: string;
+    timezone: string;
+  },
+  through?: string,
+) {
   const db = database();
   const userId = user.id;
+  await ensureRecurringTasks(
+    userId,
+    dateKey(new Date(), user.timezone),
+    through,
+  );
   // In-app delivery is access-driven, not a background promise. Claim and log atomically.
   await db.$transaction(async (tx) => {
     const due = await tx.reminder.findMany({
@@ -49,6 +58,17 @@ export async function getWorkspace(user: {
       where: { userId },
       orderBy: { createdAt: "desc" },
       include: {
+        series: {
+          select: {
+            id: true,
+            unit: true,
+            interval: true,
+            startsOn: true,
+            endsOn: true,
+            active: true,
+            version: true,
+          },
+        },
         tags: true,
         entities: true,
         periods: true,
@@ -160,6 +180,20 @@ export type FieldValue = {
 };
 export type Task = {
   id: string;
+  color: string;
+  icon: string;
+  seriesId: string | null;
+  recurrenceDate: string | null;
+  isException: boolean;
+  series: {
+    id: string;
+    unit: "DAY" | "WEEK" | "MONTH";
+    interval: number;
+    startsOn: string;
+    endsOn: string | null;
+    active: boolean;
+    version: number;
+  } | null;
   title: string;
   description: string | null;
   status: string;

@@ -135,3 +135,33 @@ test("custom fields enforce template membership, storage type, and immutable his
     /revision/,
   );
 });
+
+test("recurrence enforces owner boundaries, one occurrence per date, and valid appearance", async () => {
+  const series = "00000000-0000-4000-8000-000000000101";
+  await db.query(
+    "INSERT INTO task_series(id,user_id,unit,interval,starts_on,blueprint,updated_at) VALUES($1,$2,'DAY',1,'2026-10-20','{}',now())",
+    [series, owner],
+  );
+  await assert.rejects(
+    db.query(
+      "UPDATE tasks SET series_id=$1,recurrence_date='2026-10-20',user_id=$2 WHERE id=$3",
+      [series, other, task],
+    ),
+    /foreign key/,
+  );
+  await db.query(
+    "UPDATE tasks SET series_id=$1,recurrence_date='2026-10-20' WHERE id=$2",
+    [series, task],
+  );
+  await assert.rejects(
+    db.query(
+      "INSERT INTO tasks(id,user_id,title,series_id,recurrence_date,updated_at) VALUES('00000000-0000-4000-8000-000000000102',$1,'Duplicate',$2,'2026-10-20',now())",
+      [owner, series],
+    ),
+    /unique/,
+  );
+  await assert.rejects(
+    db.query("UPDATE tasks SET color='invalid' WHERE id=$1", [task]),
+    /check constraint/,
+  );
+});

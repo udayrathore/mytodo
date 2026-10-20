@@ -29,6 +29,7 @@ import {
   displayDate,
 } from "./ui";
 import { CategoryGrid, QuickTaskForm } from "./category-grid";
+import { TaskIcon } from "./task-options";
 import { TaskDetail } from "./task-detail";
 import { JournalView } from "./journal";
 import { Library } from "./library";
@@ -99,8 +100,13 @@ export function Workspace({ initial }: { initial: Data }) {
   const [saving, setSaving] = useState(false);
   const [capture, setCapture] = useState("");
   const [visible, setVisible] = useState(60);
-  const refresh = useCallback(async () => {
-    const response = await fetch("/api/workspace", { cache: "no-store" });
+  const refresh = useCallback(async (through?: string) => {
+    const response = await fetch(
+      through
+        ? `/api/workspace?through=${encodeURIComponent(through)}`
+        : "/api/workspace",
+      { cache: "no-store" },
+    );
     if (response.status === 401) {
       window.location.href = "/login";
       return;
@@ -108,6 +114,19 @@ export function Workspace({ initial }: { initial: Data }) {
     if (!response.ok) throw new Error("Could not refresh the workspace.");
     setData(await response.json());
   }, []);
+  const loadRange = useCallback(
+    async (through: string) => {
+      try {
+        await refresh(through);
+      } catch {
+        setNotice({
+          text: "Could not load repeating tasks for those dates.",
+          error: true,
+        });
+      }
+    },
+    [refresh],
+  );
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const v = params.get("view");
@@ -216,7 +235,10 @@ export function Workspace({ initial }: { initial: Data }) {
       {tasks.map((t) => (
         <div
           className={
-            "task-row " + (t.status === "COMPLETED" ? "completed" : "")
+            "task-row color-" +
+            (t.color || "sage") +
+            " " +
+            (t.status === "COMPLETED" ? "completed" : "")
           }
           key={t.id}
         >
@@ -238,7 +260,9 @@ export function Workspace({ initial }: { initial: Data }) {
             {t.status === "COMPLETED" && <Check size={14} />}
           </button>
           <button className="task-main" onClick={() => openTask(t)}>
-            <span className="task-title">{t.title}</span>
+            <span className="task-title">
+              <TaskIcon name={t.icon} /> {t.title}
+            </span>
             <span className="task-meta">
               {data.categories.find((c) => c.id === t.primaryCategoryId)
                 ?.name || "Uncategorized"}
@@ -313,8 +337,41 @@ export function Workspace({ initial }: { initial: Data }) {
               </div>
             </a>
             <nav aria-label="Main navigation" className="top-navigation">
-              {nav.filter(n=>["today","tasks"].includes(n.id)).map(n=><button key={n.id} className={view===n.id?"active":""} onClick={()=>navigate(n.id)}><n.icon size={16}/><span>{n.name}</span></button>)}
-              <details className="more-tools"><summary>More</summary><div>{[...nav.filter(n=>!["today","tasks"].includes(n.id)),{id:"library",name:"Library",icon:LibraryBig}].map(n=><button key={n.id} className={view===n.id?"active":""} onClick={e=>{navigate(n.id);e.currentTarget.closest("details")?.removeAttribute("open");}}><n.icon size={16}/><span>{n.name}</span></button>)}</div></details>
+              {nav
+                .filter((n) => ["today", "tasks"].includes(n.id))
+                .map((n) => (
+                  <button
+                    key={n.id}
+                    className={view === n.id ? "active" : ""}
+                    onClick={() => navigate(n.id)}
+                  >
+                    <n.icon size={16} />
+                    <span>{n.name}</span>
+                  </button>
+                ))}
+              <details className="more-tools">
+                <summary>More</summary>
+                <div>
+                  {[
+                    ...nav.filter((n) => !["today", "tasks"].includes(n.id)),
+                    { id: "library", name: "Library", icon: LibraryBig },
+                  ].map((n) => (
+                    <button
+                      key={n.id}
+                      className={view === n.id ? "active" : ""}
+                      onClick={(e) => {
+                        navigate(n.id);
+                        e.currentTarget
+                          .closest("details")
+                          ?.removeAttribute("open");
+                      }}
+                    >
+                      <n.icon size={16} />
+                      <span>{n.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </details>
             </nav>
             <div className="top-actions">
               <button
@@ -418,6 +475,7 @@ export function Workspace({ initial }: { initial: Data }) {
             )}
             {view === "today" && (
               <CategoryGrid
+                onRange={loadRange}
                 data={data}
                 save={save}
                 openTask={openTask}
@@ -554,20 +612,20 @@ export function Workspace({ initial }: { initial: Data }) {
             )}
             {view === "insights" && <Insights data={data} />}
             {view === "library" && <Library data={data} save={save} />}
-
           </main>
         </div>
         {drawer && (
           <Drawer
-            title={
-              drawer === "new"
-                ? "Add a task"
-                : "Task details"
-            }
+            title={drawer === "new" ? "Add a task" : "Task details"}
             onClose={closeDrawer}
           >
             {drawer === "new" ? (
-              <QuickTaskForm data={data} cell={{date:data.today,categoryId:"",mode:"plan"}} save={save} onDone={closeDrawer} />
+              <QuickTaskForm
+                data={data}
+                cell={{ date: data.today, categoryId: "", mode: "plan" }}
+                save={save}
+                onDone={closeDrawer}
+              />
             ) : selected ? (
               <TaskDetail
                 key={selected.id + ":" + selected.version}

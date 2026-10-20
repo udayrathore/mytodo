@@ -10,6 +10,7 @@ import {
   inputToIso,
   localInput,
 } from "./ui";
+import { SeriesSettings, TaskIcon } from "./task-options";
 import { effortTotal } from "@/lib/analytics";
 export function TaskDetail({
   task,
@@ -77,7 +78,9 @@ export function TaskDetail({
         <span className={"status " + task.status.toLowerCase()}>
           {human(task.status)}
         </span>
-        <h2>{task.title}</h2>
+        <h2>
+          <TaskIcon name={task.icon} size={20} /> {task.title}
+        </h2>
         <p>
           {duration(effortTotal(task))} recorded
           {task.estimatedMinutes
@@ -98,6 +101,7 @@ export function TaskDetail({
       </div>
       {tab === "Details" && (
         <>
+          <SeriesSettings task={task} save={save} />
           <TaskForm task={task} data={data} save={save} onDone={() => {}} />
           <section className="subsection">
             <h3>Related work</h3>

@@ -1,4 +1,5 @@
 "use client";
+import { AppearanceFields, RepeatFields, readRepeat } from "./task-options";
 import { useState, type FormEvent } from "react";
 import type { Workspace, Task, Field as CustomField } from "@/lib/workspace";
 import { Field, Chips, human, localInput, inputToIso } from "./ui";
@@ -117,6 +118,7 @@ export function TaskForm({
   const [templateId, setTemplateId] = useState(task?.templateId || "");
   const [fields, setFields] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
+  const [scope, setScope] = useState("ONE");
   const template = data.templates.find((t) => t.id === templateId);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -130,8 +132,20 @@ export function TaskForm({
     const ok = await save({
       type: task ? "task.update" : "task.create",
       ...(task
-        ? { id: task.id, version: task.version, status: f.get("status") }
-        : { templateId: templateId || null, fields: values }),
+        ? {
+            id: task.id,
+            version: task.version,
+            status: f.get("status") || task.status,
+            scope,
+            seriesVersion: task.series?.version,
+          }
+        : {
+            templateId: templateId || null,
+            fields: values,
+            repeat: readRepeat(f),
+          }),
+      color: f.get("color") || "sage",
+      icon: f.get("icon") || "none",
       title: f.get("title"),
       description: f.get("description"),
       primaryCategoryId: f.get("primaryCategoryId") || null,
@@ -150,6 +164,22 @@ export function TaskForm({
   }
   return (
     <form onSubmit={submit} className="form-stack">
+      {task?.seriesId && (
+        <label className="field">
+          Apply changes to
+          <select value={scope} onChange={(e) => setScope(e.target.value)}>
+            <option value="ONE">This occurrence only</option>
+            <option value="ALL">Every occurrence in this series</option>
+          </select>
+          <small>
+            {scope === "ALL"
+              ? "Updates title, notes, category, priority, estimate, tags, entities, color and icon across the series, including future tasks. Individual dates and completion statuses are preserved."
+              : "Other occurrences will stay unchanged."}
+          </small>
+        </label>
+      )}
+      <AppearanceFields color={task?.color} icon={task?.icon} />
+      {!task && <RepeatFields />}
       <Field label="What’s on your mind?">
         <input
           name="title"
@@ -200,6 +230,7 @@ export function TaskForm({
           <input
             type="date"
             name="plannedDate"
+            disabled={scope === "ALL"}
             defaultValue={task?.plannedDate?.slice(0, 10)}
           />
         </Field>
@@ -207,6 +238,7 @@ export function TaskForm({
           <input
             type="datetime-local"
             name="dueAt"
+            disabled={scope === "ALL"}
             defaultValue={
               task?.dueAt ? localInput(task.dueAt, data.user.timezone) : ""
             }
@@ -224,7 +256,11 @@ export function TaskForm({
         </Field>
         {task ? (
           <Field label="Status">
-            <select name="status" defaultValue={task.status}>
+            <select
+              name="status"
+              disabled={scope === "ALL"}
+              defaultValue={task.status}
+            >
               {[
                 "INBOX",
                 "PLANNED",

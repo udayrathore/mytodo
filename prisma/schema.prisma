@@ -106,6 +106,7 @@ model User {
   updatedAt                  DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
   categoryRecords            Category[]
   taskRecords                Task[]
+  taskSeries                 TaskSeries[]
   taskEventRecords           TaskEvent[]
   tagRecords                 Tag[]
   taskTagRecords             TaskTag[]
@@ -156,6 +157,13 @@ model Task {
   id                  String            @id @default(uuid()) @db.Uuid
   userId              String            @map("user_id") @db.Uuid
   user                User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  seriesId            String?           @map("series_id") @db.Uuid
+  recurrenceDate      DateTime?         @map("recurrence_date") @db.Date
+  isException         Boolean           @default(false) @map("is_exception")
+  scheduleRemoved     Boolean           @default(false) @map("schedule_removed")
+  color               String            @default("sage") @db.VarChar(20)
+  icon                String            @default("none") @db.VarChar(30)
+  series              TaskSeries?       @relation(fields: [seriesId], references: [id], onDelete: Restrict)
   title               String            @db.VarChar(240)
   description         String?
   primaryCategoryId   String?           @map("primary_category_id") @db.Uuid
@@ -185,6 +193,8 @@ model Task {
   updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([id, userId])
+  @@unique([seriesId, recurrenceDate])
+  @@index([userId, seriesId])
   @@index([userId, archivedAt, status, plannedDate])
   @@index([userId, dueAt])
   @@index([userId, primaryCategoryId])
@@ -529,4 +539,25 @@ model LoginBucket {
   resetsAt DateTime @map("resets_at") @db.Timestamptz(3)
 
   @@map("login_buckets")
+}
+
+model TaskSeries {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  user             User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  unit             String    @db.VarChar(10)
+  interval         Int       @default(1)
+  startsOn         DateTime  @map("starts_on") @db.Date
+  endsOn           DateTime? @map("ends_on") @db.Date
+  active           Boolean   @default(true)
+  blueprint        Json
+  generatedThrough DateTime? @map("generated_through") @db.Date
+  version          Int       @default(0)
+  tasks            Task[]
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([id, userId])
+  @@index([userId, active])
+  @@map("task_series")
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { repeatRule, taskColors, taskIcons } from "./recurrence";
 export class DomainError extends Error {}
 export const statuses = [
   "INBOX",
@@ -41,6 +42,8 @@ const fieldInput = z.record(
   ]),
 );
 const taskFields = {
+  color: z.enum(taskColors).default("sage"),
+  icon: z.enum(taskIcons).default("none"),
   title,
   description: text.default(""),
   primaryCategoryId: nullableId,
@@ -60,7 +63,23 @@ const taskFields = {
 };
 export const commandSchema = z.discriminatedUnion("type", [
   z.object({
+    type: z.literal("series.create"),
+    id,
+    version: z.number().int(),
+    repeat: repeatRule,
+  }),
+  z.object({
+    type: z.literal("series.schedule"),
+    id,
+    version: z.number().int(),
+    repeat: repeatRule,
+    active: z.boolean(),
+  }),
+
+  z.object({
     type: z.literal("activity.log"),
+    color: z.enum(taskColors).default("sage"),
+    icon: z.enum(taskIcons).default("none"),
     taskId: id.nullable().default(null),
     title: title.optional(),
     primaryCategoryId: id,
@@ -71,12 +90,15 @@ export const commandSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("task.create"),
+    repeat: repeatRule.nullable().default(null),
     ...taskFields,
     templateId: nullableId,
     fields: fieldInput.default({}),
   }),
   z.object({
     type: z.literal("task.update"),
+    scope: z.enum(["ONE", "ALL"]).default("ONE"),
+    seriesVersion: z.number().int().optional(),
     id,
     version: z.number().int().min(0),
     ...taskFields,
