@@ -71,3 +71,9 @@ New automated checks cover plans versus activity dates, timed-log deduplication,
 25 automated checks passed: 11 unit tests, 13 migration/command integration tests and one HTTP security test. New cases cover month-end/leap-year anchors, interval windows, repeat deduplication under concurrent refreshes, owner constraints, one-occurrence versus series edits, preserved completion, future inheritance, pausing/resuming, stale updates, manual-archive protection, typed-field/link cloning, per-occurrence custom-value isolation and appearance validation.
 
 The production browser check created a three-day daily series with a blue fitness icon, changed all three to a new title with purple/star styling, completed only the first, and paused the remaining two. Temporary verification tasks were archived afterward. The preview screenshot contains that temporary demonstration series. The production build passed using webpack (the local Turbopack process was restricted from opening its worker port).
+
+## Grouped recurrence and delayed tooltips — 20 October 2026
+
+Task selectors now list each series once and require an explicit dated occurrence before linking. The Tasks view collapses matching occurrences into expandable groups; filters run before grouping, and completion still targets one occurrence. Equal titles from unrelated series/tasks remain separate. No data migration or user task edits were needed.
+
+26 automated checks passed, including the grouping identity/order regression, plus the production webpack build. A separate browser tab verified the single series option, dated occurrence selector, grouped list, delayed keyboard-focus tooltip and Escape dismissal. Pointer hover uses the same 3,000ms timer; moving away, scrolling, resizing or clicking cancels it. Preview: `grouped-tasks-tooltips.jpg`.

@@ -11,6 +11,7 @@ import {
   localInput,
 } from "./ui";
 import { SeriesSettings, TaskIcon } from "./task-options";
+import { TaskPicker } from "./task-picker";
 import { effortTotal } from "@/lib/analytics";
 export function TaskDetail({
   task,
@@ -108,25 +109,30 @@ export function TaskDetail({
             {task.relationsFrom.map((r) => (
               <p key={r.targetTaskId + r.relationType} className="meta-line">
                 {human(r.relationType)} →{" "}
-                {data.tasks.find((t) => t.id === r.targetTaskId)?.title}
+                {(() => {
+                  const target = data.tasks.find(
+                    (t) => t.id === r.targetTaskId,
+                  );
+                  return target
+                    ? target.title +
+                        (target.seriesId
+                          ? ` · ${target.plannedDate?.slice(0, 10) || "Unscheduled"}`
+                          : "")
+                    : "Archived task";
+                })()}
               </p>
             ))}
             <form
               className="form-stack"
               onSubmit={(e) => submit(e, "task.relate")}
             >
-              <Field label="Task">
-                <select name="targetId" required>
-                  <option value="">Choose a task</option>
-                  {data.tasks
-                    .filter((t) => t.id !== task.id && !t.archivedAt)
-                    .map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.title}
-                      </option>
-                    ))}
-                </select>
-              </Field>
+              <TaskPicker
+                key={task.relationsFrom.length}
+                tasks={data.tasks.filter(
+                  (t) => t.id !== task.id && !t.archivedAt,
+                )}
+                required
+              />
               <Field label="Relationship">
                 <select name="relationType">
                   {[

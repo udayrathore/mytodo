@@ -12,6 +12,7 @@ import {
   TaskIcon,
 } from "./task-options";
 import { Repeat2 } from "lucide-react";
+import { TaskPicker } from "./task-picker";
 import type { Save } from "./task-form";
 
 export function CategoryGrid({
@@ -462,20 +463,13 @@ export function QuickTaskForm({
             </select>
           </label>
           {mode === "log" && (
-            <label className="field">
-              Link to a task
-              <select
-                value={taskId}
-                onChange={(e) => setTaskId(e.target.value)}
-              >
-                <option value="">New activity</option>
-                {tasks.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.title}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <TaskPicker
+              key={categoryId}
+              tasks={tasks}
+              label="Link to a task"
+              empty="New activity"
+              onChange={setTaskId}
+            />
           )}
           <label className="field">
             Date

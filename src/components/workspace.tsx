@@ -29,6 +29,7 @@ import {
   displayDate,
 } from "./ui";
 import { CategoryGrid, QuickTaskForm } from "./category-grid";
+import { groupTasks } from "@/lib/task-groups";
 import { TaskIcon } from "./task-options";
 import { TaskDetail } from "./task-detail";
 import { JournalView } from "./journal";
@@ -99,6 +100,7 @@ export function Workspace({ initial }: { initial: Data }) {
   );
   const [saving, setSaving] = useState(false);
   const [capture, setCapture] = useState("");
+  const [expandedSeries, setExpandedSeries] = useState<string[]>([]);
   const [visible, setVisible] = useState(60);
   const refresh = useCallback(async (through?: string) => {
     const response = await fetch(
@@ -228,6 +230,7 @@ export function Workspace({ initial }: { initial: Data }) {
       (!entity || t.entities.some((l) => l.entityId === entity)) &&
       (!priority || t.priority === priority),
   );
+  const groupedTasks = groupTasks(filtered);
   const selected = data.tasks.find((t) => t.id === drawer);
   const heading = headings[view];
   const taskRows = (tasks: Task[], empty = "Nothing here, for now.") => (
@@ -264,6 +267,9 @@ export function Workspace({ initial }: { initial: Data }) {
               <TaskIcon name={t.icon} /> {t.title}
             </span>
             <span className="task-meta">
+              {t.seriesId && (
+                <>Repeating · {displayDate(t.plannedDate!, "UTC")} · </>
+              )}
               {data.categories.find((c) => c.id === t.primaryCategoryId)
                 ?.name || "Uncategorized"}
               {t.entities[0] && (
@@ -577,7 +583,7 @@ export function Workspace({ initial }: { initial: Data }) {
                       {category
                         ? data.categories.find((c) => c.id === category)?.name
                         : "Intentions"}{" "}
-                      <span className="count">{filtered.length}</span>
+                      <span className="count">{groupedTasks.length}</span>
                     </h2>
                     {category && (
                       <button
@@ -588,11 +594,38 @@ export function Workspace({ initial }: { initial: Data }) {
                       </button>
                     )}
                   </div>
-                  {taskRows(
-                    filtered.slice(0, visible),
-                    "No matching intentions.",
+                  {groupedTasks.slice(0, visible).map((group) =>
+                    group.occurrences[0].seriesId ? (
+                      <section className="repeat-group" key={group.key}>
+                        <button
+                          className="panel-link"
+                          aria-expanded={expandedSeries.includes(group.key)}
+                          onClick={() =>
+                            setExpandedSeries((current) =>
+                              current.includes(group.key)
+                                ? current.filter((key) => key !== group.key)
+                                : [...current, group.key],
+                            )
+                          }
+                        >
+                          <span>{group.occurrences[0].title} · Repeating</span>
+                          <span>
+                            {group.occurrences.length} matching dates ·{" "}
+                            {expandedSeries.includes(group.key)
+                              ? "Hide"
+                              : "Show dates"}
+                          </span>
+                        </button>
+                        {expandedSeries.includes(group.key) &&
+                          taskRows(group.occurrences)}
+                      </section>
+                    ) : (
+                      <div key={group.key}>{taskRows(group.occurrences)}</div>
+                    ),
                   )}
-                  {filtered.length > visible && (
+                  {!groupedTasks.length &&
+                    taskRows([], "No matching intentions.")}
+                  {groupedTasks.length > visible && (
                     <button
                       className="panel-link"
                       onClick={() => setVisible(visible + 60)}

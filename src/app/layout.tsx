@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { IconTooltips } from "@/components/icon-tooltips";
 export const metadata: Metadata = {
   title: "Still · Personal Intelligence",
   description: "A private place for intentions, actions, and observations.",
@@ -12,7 +13,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <IconTooltips />
+      </body>
     </html>
   );
 }

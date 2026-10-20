@@ -40,7 +40,15 @@ export function TaskIcon({
   size?: number;
 }) {
   const Icon = icons[name as keyof typeof icons];
-  return Icon ? <Icon size={size} aria-hidden="true" /> : null;
+  return Icon ? (
+    <Icon
+      size={size}
+      aria-hidden="true"
+      data-tooltip={
+        name ? name.charAt(0).toUpperCase() + name.slice(1) : undefined
+      }
+    />
+  ) : null;
 }
 export function AppearanceFields({
   color = "sage",
