@@ -27,7 +27,7 @@ test("private routes, sign-in, daily capture, effort, planning, journal, analyti
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Enter your workspace" }).click();
   await expect(
-    page.getByRole("heading", { name: "Your days, across your life." }),
+    page.getByRole("heading", { name: "What needs doing?" }),
   ).toBeVisible();
   await page.screenshot({ path: "docs/workspace-preview.png", fullPage: true });
   await page.getByRole("button", { name: "Tasks", exact: true }).click();
@@ -58,10 +58,12 @@ test("private routes, sign-in, daily capture, effort, planning, journal, analyti
   await expect(
     page.getByRole("button", { name: `Reopen ${title}`, exact: true }),
   ).toBeVisible();
+  await page.getByText("More", { exact: true }).click();
   await page.getByRole("button", { name: "Weekly plan", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "In this plan", exact: false }),
   ).toBeVisible();
+  await page.getByText("More", { exact: true }).click();
   await page.getByRole("button", { name: "Journal", exact: true }).click();
   await page.getByRole("button", { name: "New observation" }).click();
   await page
@@ -74,10 +76,12 @@ test("private routes, sign-in, daily capture, effort, planning, journal, analyti
   await expect(
     page.getByRole("heading", { name: "Browser verification observation" }),
   ).toBeVisible();
+  await page.getByText("More", { exact: true }).click();
   await page.getByRole("button", { name: "Timeline", exact: true }).click();
   await expect(
     page.getByText("An independent observation, without a task."),
   ).toBeVisible();
+  await page.getByText("More", { exact: true }).click();
   await page.getByRole("button", { name: "Insights", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "A record of your attention" }),
@@ -97,9 +101,9 @@ test("private routes, sign-in, daily capture, effort, planning, journal, analyti
   await page.getByRole("button", { name: "Archive task", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "Tracker", exact: true }).click();
+  await page.getByRole("button", { name: "My day", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Your days, across your life." }),
+    page.getByRole("heading", { name: "What needs doing?" }),
   ).toBeVisible();
   expect(
     await page.evaluate(

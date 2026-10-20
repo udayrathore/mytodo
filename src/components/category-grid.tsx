@@ -3,13 +3,12 @@ import { useMemo, useState, type FormEvent } from "react";
 import {
   ChevronLeft,
   ChevronRight,
-  Plus,
   Check,
   ArrowUpRight,
 } from "lucide-react";
 import type { Workspace, Task } from "@/lib/workspace";
 import { addDays } from "@/lib/domain";
-import { trackerColumns, trackerEntries } from "@/lib/tracker";
+import { trackerColumns, trackerEntries, taskEntries } from "@/lib/tracker";
 import { Drawer, duration } from "./ui";
 import type { Save } from "./task-form";
 
@@ -24,14 +23,23 @@ export function CategoryGrid({
   openTask: (task: Task) => void;
   openCategory: (id: string) => void;
 }) {
-  const [start, setStart] = useState(addDays(data.today, -2));
+  const [start, setStart] = useState(data.today);
   const [cell, setCell] = useState<{
     date: string;
     categoryId: string;
     mode: "plan" | "log";
   } | null>(null);
   const columns = useMemo(() => trackerColumns(data), [data]);
-  const entries = useMemo(() => trackerEntries(data), [data]);
+  const [showActivity, setShowActivity] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
+  const todos = useMemo(() => taskEntries(data), [data]);
+  const entries = useMemo(() => showActivity ? trackerEntries(data).filter(e => e.kind === "logged") : todos, [data, showActivity, todos]);
+  async function changeStatus(task: Task, status: string) {
+    if (pending) return;
+    setPending(task.id);
+    try { await save({type:"task.status",id:task.id,version:task.version,status}); }
+    finally { setPending(null); }
+  }
   const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
   const month = (day: string) =>
     new Date(day + "T00:00:00Z").toLocaleDateString("en", {
@@ -43,7 +51,7 @@ export function CategoryGrid({
     (t) =>
       !t.archivedAt &&
       !["COMPLETED", "CANCELLED"].includes(t.status) &&
-      (!t.plannedDate ||
+      ((t.plannedDate && t.plannedDate.slice(0,10) < data.today) || !todos.some(e => e.task.id === t.id) ||
         !columns.some(
           (c) => t.primaryCategoryId && c.descendants.has(t.primaryCategoryId),
         )),
@@ -71,7 +79,7 @@ export function CategoryGrid({
           </button>
           <button
             className="button"
-            onClick={() => setStart(addDays(data.today, -2))}
+            onClick={() => setStart(data.today)}
           >
             Today
           </button>
@@ -86,10 +94,7 @@ export function CategoryGrid({
               onChange={(e) => e.target.value && setStart(e.target.value)}
             />
           </label>
-          <span className="grid-legend">
-            <i className="planned-dot" /> Planned <i className="logged-dot" />{" "}
-            Logged
-          </span>
+          <label className="checkbox-label"><input type="checkbox" checked={showActivity} onChange={e=>setShowActivity(e.target.checked)}/> Show activity history</label>
         </div>
       </div>
       <div
@@ -150,65 +155,31 @@ export function CategoryGrid({
                       c.descendants.has(e.task.primaryCategoryId),
                   );
                   return (
-                    <td key={c.id}>
+                    <td key={c.id} className="clickable-sheet-cell">
+                      <button
+                        className="cell-target"
+                        aria-label={`${day < data.today ? "Log" : "Add task"} in ${c.name} on ${day}`}
+                        onClick={() => setCell({date: day, categoryId: c.id, mode: day < data.today ? "log" : "plan"})}
+                      />
                       <div className="sheet-cell">
-                        {items.map((e) => (
-                          <button
-                            key={e.id}
-                            className={"sheet-entry " + e.kind}
-                            onClick={() => openTask(e.task)}
-                          >
-                            <span className="entry-label">
-                              {e.kind === "logged"
-                                ? "Logged"
-                                : e.task.status === "COMPLETED"
-                                  ? "Planned · done"
-                                  : "Planned"}
-                              {e.minutes ? ` · ${duration(e.minutes)}` : ""}
-                            </span>
-                            <strong>{e.task.title}</strong>
-                            {e.note && (
-                              <span className="entry-note">{e.note}</span>
-                            )}
-                            {e.task.primaryCategoryId !== c.id && (
-                              <span className="entry-category">
-                                {
-                                  data.categories.find(
-                                    (x) => x.id === e.task.primaryCategoryId,
-                                  )?.name
-                                }
-                              </span>
-                            )}
+                        {items.map((e) => showActivity ? (
+                          <button key={e.id} className="sheet-entry logged" onClick={()=>openTask(e.task)}>
+                            <span className="entry-label">Activity{e.minutes ? ` · ${duration(e.minutes)}` : ""}</span><strong>{e.task.title}</strong>{e.note && <span className="entry-note">{e.note}</span>}
                           </button>
+                        ) : (
+                          <article key={e.id} className={"sheet-entry todo-entry " + (e.task.status === "COMPLETED" ? "is-complete" : "")}>
+                            <div className="todo-title-row">
+                              <button className="todo-check" role="checkbox" aria-checked={e.task.status === "COMPLETED"} aria-label={`${e.task.status === "COMPLETED" ? "Reopen" : "Complete"} ${e.task.title}`} disabled={pending !== null} onClick={()=>changeStatus(e.task,e.task.status === "COMPLETED" ? "PLANNED" : "COMPLETED")}>
+                                {e.task.status === "COMPLETED" && <Check size={13}/>}
+                              </button>
+                              <button className="todo-title" onClick={()=>openTask(e.task)}>{e.task.title}</button>
+                            </div>
+                            <select className={"todo-status status-"+e.task.status.toLowerCase()} aria-label={`Status of ${e.task.title}`} disabled={pending !== null} value={e.task.status === "COMPLETED" ? "COMPLETED" : e.task.status === "IN_PROGRESS" ? "IN_PROGRESS" : "PLANNED"} onChange={ev=>changeStatus(e.task,ev.target.value)}>
+                              <option value="PLANNED">Upcoming</option><option value="IN_PROGRESS">Ongoing</option><option value="COMPLETED">Completed</option>
+                            </select>
+                            {e.task.primaryCategoryId !== c.id && <span className="entry-category">{data.categories.find(x=>x.id===e.task.primaryCategoryId)?.name}</span>}
+                          </article>
                         ))}
-                        <div className="cell-actions">
-                          <button
-                            aria-label={`Plan in ${c.name} on ${day}`}
-                            onClick={() =>
-                              setCell({
-                                date: day,
-                                categoryId: c.id,
-                                mode: "plan",
-                              })
-                            }
-                          >
-                            <Plus size={12} /> Plan
-                          </button>
-                          {day <= data.today && (
-                            <button
-                              aria-label={`Log in ${c.name} on ${day}`}
-                              onClick={() =>
-                                setCell({
-                                  date: day,
-                                  categoryId: c.id,
-                                  mode: "log",
-                                })
-                              }
-                            >
-                              <Check size={12} /> Log
-                            </button>
-                          )}
-                        </div>
                       </div>
                     </td>
                   );
@@ -225,33 +196,30 @@ export function CategoryGrid({
       )}
       <div className="tracker-footnote">
         <span>
-          Subcategories roll up here. Select an entry to see its details.
+          Click a cell to add a task. Check it off when you’re done.
         </span>
         <span>
-          Plans are intentions · Logs are activity · Journal is observation
+          Upcoming → Ongoing → Completed
         </span>
       </div>
       {unplaced.length > 0 && (
-        <details className="unplaced-tasks">
+        <details className="unplaced-tasks" open>
           <summary>
-            {unplaced.length} tasks waiting for a date or category
+            {unplaced.length} unfinished tasks from earlier or without a place
           </summary>
           <div>
             {unplaced.map((t) => (
-              <button key={t.id} onClick={() => openTask(t)}>
-                {t.title}
-                <ArrowUpRight size={13} />
-              </button>
+              <div className="backlog-task" key={t.id}><button className="todo-check" role="checkbox" aria-checked={false} aria-label={`Complete ${t.title}`} disabled={pending !== null} onClick={()=>changeStatus(t,"COMPLETED")}/><button onClick={() => openTask(t)}>{t.title}<ArrowUpRight size={13}/></button></div>
             ))}
           </div>
         </details>
       )}
       {cell && (
         <Drawer
-          title={cell.mode === "plan" ? "Plan a task" : "Log an activity"}
+          title={cell.mode === "plan" ? "Add a task" : "Record what you did"}
           onClose={() => setCell(null)}
         >
-          <CellForm
+          <QuickTaskForm
             key={cell.date + cell.categoryId + cell.mode}
             data={data}
             cell={cell}
@@ -263,7 +231,7 @@ export function CategoryGrid({
     </section>
   );
 }
-function CellForm({
+export function QuickTaskForm({
   data,
   cell,
   save,
@@ -274,16 +242,16 @@ function CellForm({
   save: Save;
   onDone: () => void;
 }) {
-  const [mode, setMode] = useState(cell.mode);
+  const mode = cell.mode;
   const [categoryId, setCategoryId] = useState(cell.categoryId);
   const [taskId, setTaskId] = useState("");
   const [busy, setBusy] = useState(false);
-  const root = trackerColumns(data).find((c) => c.id === cell.categoryId)!;
+  const root = trackerColumns(data).find((c) => c.id === cell.categoryId);
   const categories = data.categories
-    .filter((c) => c.isActive && root.descendants.has(c.id))
+    .filter((c) => c.isActive && (!root || root.descendants.has(c.id)))
     .sort(
       (a, b) =>
-        Number(b.id === root.id) - Number(a.id === root.id) ||
+        Number(b.id === root?.id) - Number(a.id === root?.id) ||
         a.sortOrder - b.sortOrder ||
         a.name.localeCompare(b.name),
     );
@@ -303,15 +271,15 @@ function CellForm({
         ? {
             type: "task.create",
             title: f.get("title"),
-            description: f.get("note"),
-            primaryCategoryId: categoryId,
+            description: f.get("note") || "",
+            primaryCategoryId: categoryId || null,
             plannedDate: f.get("date"),
           }
         : {
             type: "activity.log",
             taskId: taskId || null,
             title: taskId ? undefined : f.get("title"),
-            primaryCategoryId: categoryId,
+            primaryCategoryId: categoryId || null,
             occurredOn: f.get("date"),
             note: f.get("note"),
             minutes: f.get("minutes") ? Number(f.get("minutes")) : null,
@@ -323,25 +291,10 @@ function CellForm({
   return (
     <form className="form-stack" onSubmit={submit}>
       <p className="muted">
-        {root.name} · {cell.date}
+        {root?.name || "New task"} · {cell.date}
       </p>
-      <div className="tabs">
-        <button
-          type="button"
-          className={mode === "plan" ? "active" : ""}
-          onClick={() => setMode("plan")}
-        >
-          Plan a task
-        </button>
-        <button
-          type="button"
-          disabled={cell.date > data.today}
-          className={mode === "log" ? "active" : ""}
-          onClick={() => setMode("log")}
-        >
-          Log activity
-        </button>
-      </div>
+      {(mode === "plan" || !taskId) && <label className="field">{mode === "plan" ? "Task" : "What did you do?"}<input autoFocus name="title" required maxLength={240} placeholder={mode === "plan" ? "What needs doing?" : "What did you finish?"}/></label>}
+      <details className="task-options"><summary>Add details (optional)</summary><div className="form-stack">
       <label className="field">
         Category
         <select
@@ -351,9 +304,10 @@ function CellForm({
             setTaskId("");
           }}
         >
+          {!root && <option value="">Choose a category</option>}
           {categories.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.id === root.id ? c.name : `↳ ${c.name}`}
+              {c.id === root?.id ? c.name : `↳ ${c.name}`}
             </option>
           ))}
         </select>
@@ -369,22 +323,6 @@ function CellForm({
               </option>
             ))}
           </select>
-        </label>
-      )}
-      {(mode === "plan" || !taskId) && (
-        <label className="field">
-          {mode === "plan" ? "What do you plan to do?" : "What did you do?"}
-          <input
-            autoFocus
-            name="title"
-            required
-            maxLength={240}
-            placeholder={
-              mode === "plan"
-                ? "e.g. Plan next week’s meals"
-                : "e.g. Cooked dinner and tidied the kitchen"
-            }
-          />
         </label>
       )}
       <label className="field">
@@ -437,8 +375,9 @@ function CellForm({
           </p>
         </>
       )}
+      </div></details>
       <button type="submit" className="button primary" disabled={busy}>
-        {busy ? "Saving…" : mode === "plan" ? "Save plan" : "Save activity"}
+        {busy ? "Saving…" : mode === "plan" ? "Add task" : "Save activity"}
       </button>
     </form>
   );

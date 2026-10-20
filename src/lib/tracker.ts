@@ -56,3 +56,12 @@ export function trackerColumns(data: Pick<Workspace, "categories">) {
     .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
     .map((c) => ({ ...c, descendants: descendants(data.categories, c.id) }));
 }
+
+// A task appears once in the task view. Session logs remain optional history.
+export function taskEntries(data: Pick<Workspace, "tasks" | "events">): TrackerEntry[] {
+  const activity = trackerEntries(data).filter(e => e.kind === "logged");
+  return data.tasks.filter(t => !t.archivedAt && t.status !== "CANCELLED").flatMap(task => {
+    const date = task.plannedDate?.slice(0, 10) || activity.filter(e => e.task.id === task.id).map(e => e.date).sort()[0];
+    return date ? [{ id: task.id, task, date, kind: "planned" as const }] : [];
+  });
+}

@@ -166,3 +166,7 @@ The home screen is a seven-day sheet: dates on the left, active parent categorie
 Timed logs use existing effort entries; untimed logs use existing task events. No schema migration was needed. Actual activity dates are kept separate from the time the record was created. Entries without a date or category remain accessible below the sheet and in Tasks.
 
 The seed uses Environment Control, Health, Relationship, Sales & Marketing, Creativity, Operations, and Finances. For a workspace using the original sample categories, run `npm run db:categories` once. It creates/reuses these roots and nests the original sample categories while preserving tasks and history. Do not rerun it after intentionally reorganizing those sample categories.
+
+## Task-first daily workflow
+
+My day opens on today. Click a cell, enter a title and add the task; its date and category are already filled in. Change Upcoming / Ongoing / Completed directly on the card, or use the checkbox to complete/reopen it. Each task appears once in the default view, even if it has several activity entries. Notes and other creation fields are under Add details. Historical activity is opt-in; supporting tools are under More. Past cells still record activity, while today and future cells create to-dos. Status events and analytics continue to use the existing data model.

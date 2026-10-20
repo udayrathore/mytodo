@@ -78,3 +78,10 @@ test("parent columns include deeply nested categories without adding extra colum
   assert.equal(cols.length, 1);
   assert.ok(cols[0].descendants.has("leaf"));
 });
+
+test("task view shows each task once, keeps completed tasks, and dates unplanned activity",async()=>{
+  const {taskEntries}=await import('../src/lib/tracker');
+  const base={id:'planned',status:'COMPLETED',archivedAt:null,plannedDate:'2026-10-20',effort:[{id:'e1',occurredOn:'2026-10-19',minutes:20},{id:'e2',occurredOn:'2026-10-20',minutes:30}]} as Task;
+  const rows=taskEntries({tasks:[base,{...base,id:'unplanned',plannedDate:null},{...base,id:'cancelled',status:'CANCELLED'}],events:[]});
+  assert.deepEqual(rows.map(e=>[e.task.id,e.date]),[['planned','2026-10-20'],['unplanned','2026-10-19']]);
+});

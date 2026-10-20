@@ -28,15 +28,14 @@ import {
   duration,
   displayDate,
 } from "./ui";
-import { CategoryGrid } from "./category-grid";
-import { TaskForm } from "./task-form";
+import { CategoryGrid, QuickTaskForm } from "./category-grid";
 import { TaskDetail } from "./task-detail";
 import { JournalView } from "./journal";
 import { Library } from "./library";
 import { Planning } from "./planning";
 import { Insights, Timeline } from "./insights";
 const nav = [
-  { id: "today", name: "Tracker", icon: Sun },
+  { id: "today", name: "My day", icon: Sun },
   { id: "week", name: "Weekly plan", icon: CalendarDays },
   { id: "tasks", name: "Tasks", icon: Inbox },
   { id: "journal", name: "Journal", icon: BookOpen },
@@ -48,9 +47,9 @@ const headings: Record<
   { title: string; subtitle: string; eyebrow: string }
 > = {
   today: {
-    title: "Your days, across your life.",
-    subtitle: "Plan what’s next. Record what happened. One row at a time.",
-    eyebrow: "Daily tracker",
+    title: "What needs doing?",
+    subtitle: "Add a task. Take it one step at a time. Check it off.",
+    eyebrow: "Your daily to-dos",
   },
   week: {
     title: "A week, thoughtfully considered.",
@@ -314,19 +313,8 @@ export function Workspace({ initial }: { initial: Data }) {
               </div>
             </a>
             <nav aria-label="Main navigation" className="top-navigation">
-              {[
-                ...nav,
-                { id: "library", name: "Library", icon: LibraryBig },
-              ].map((n) => (
-                <button
-                  key={n.id}
-                  className={view === n.id ? "active" : ""}
-                  onClick={() => navigate(n.id)}
-                >
-                  <n.icon size={16} />
-                  <span>{n.name}</span>
-                </button>
-              ))}
+              {nav.filter(n=>["today","tasks"].includes(n.id)).map(n=><button key={n.id} className={view===n.id?"active":""} onClick={()=>navigate(n.id)}><n.icon size={16}/><span>{n.name}</span></button>)}
+              <details className="more-tools"><summary>More</summary><div>{[...nav.filter(n=>!["today","tasks"].includes(n.id)),{id:"library",name:"Library",icon:LibraryBig}].map(n=><button key={n.id} className={view===n.id?"active":""} onClick={e=>{navigate(n.id);e.currentTarget.closest("details")?.removeAttribute("open");}}><n.icon size={16}/><span>{n.name}</span></button>)}</div></details>
             </nav>
             <div className="top-actions">
               <button
@@ -566,25 +554,20 @@ export function Workspace({ initial }: { initial: Data }) {
             )}
             {view === "insights" && <Insights data={data} />}
             {view === "library" && <Library data={data} save={save} />}
-            <footer className="workspace-footer">
-              <span>
-                Intention <i /> Action <i /> Observation
-              </span>
-              <span>One personal record. Room to grow.</span>
-            </footer>
+
           </main>
         </div>
         {drawer && (
           <Drawer
             title={
               drawer === "new"
-                ? "Capture an intention"
-                : "An intention, in detail"
+                ? "Add a task"
+                : "Task details"
             }
             onClose={closeDrawer}
           >
             {drawer === "new" ? (
-              <TaskForm data={data} save={save} onDone={closeDrawer} />
+              <QuickTaskForm data={data} cell={{date:data.today,categoryId:"",mode:"plan"}} save={save} onDone={closeDrawer} />
             ) : selected ? (
               <TaskDetail
                 key={selected.id + ":" + selected.version}
