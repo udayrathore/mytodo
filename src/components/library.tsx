@@ -1,4 +1,5 @@
 "use client";
+import { CollectionSettings, CollectionAvatar } from "./collection-settings";
 import { useState, type FormEvent } from "react";
 import {
   Plus,
@@ -13,7 +14,15 @@ import type { Workspace } from "@/lib/workspace";
 import { fieldTypes } from "@/lib/domain";
 import type { Save } from "./task-form";
 import { Drawer, Field, human, Empty } from "./ui";
-export function Library({ data, save }: { data: Workspace; save: Save }) {
+export function Library({
+  data,
+  save,
+  categoriesOnly = false,
+}: {
+  data: Workspace;
+  save: Save;
+  categoriesOnly?: boolean;
+}) {
   const [tab, setTab] = useState("Categories");
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -44,6 +53,7 @@ export function Library({ data, save }: { data: Workspace; save: Save }) {
         ...base,
         parentId: f.get("parentId") || null,
         sortOrder: Number(f.get("sortOrder")),
+        description: f.get("description"),
         isActive: f.get("isActive") === "on",
       };
     else if (tab === "Tags")
@@ -75,7 +85,9 @@ export function Library({ data, save }: { data: Workspace; save: Save }) {
   }
   const items =
     tab === "Categories"
-      ? data.categories
+      ? [...data.categories].sort(
+          (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
+        )
       : tab === "Tags"
         ? data.tags
         : tab === "Entities"
@@ -85,7 +97,10 @@ export function Library({ data, save }: { data: Workspace; save: Save }) {
     <>
       <div className="section-toolbar">
         <div className="tabs compact">
-          {["Categories", "Tags", "Entities", "Templates"].map((t) => (
+          {(categoriesOnly
+            ? ["Categories"]
+            : ["Categories", "Tags", "Entities", "Templates"]
+          ).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -114,17 +129,29 @@ export function Library({ data, save }: { data: Workspace; save: Save }) {
           {tab === "Categories" ? "category" : tab.slice(0, -1).toLowerCase()}
         </button>
       </div>
-      <p className="muted library-intro">
+      {tab !== "Categories" && <p className="muted library-intro">
         {tab === "Categories"
-          ? "Organize your life at any depth. Parent categories include their children in navigation and analysis."
+          ? "Give each category a purpose and a priority rank. Lower ranks appear first on your home screen; tied ranks sort by name. Child categories belong inside their parent."
           : tab === "Tags"
             ? "Cross-cutting labels, independent of where a task belongs."
             : tab === "Entities"
               ? "People, projects, clients, and organizations connected to your work."
-              : "Reusable fields for recurring kinds of intentions. New revisions preserve the past."}
-      </p>
-      <div className="library-grid">
+              : "Reusable fields for recurring kinds of tasks. New revisions preserve the past."}
+      </p>}
+      {tab === "Categories" ? <div className="category-list" role="list" aria-label="Categories">
+        {[...data.categories].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)).map(item => (
+          <div className="category-list-row" key={item.id} role="listitem">
+            <button className="category-list-name" onClick={() => setEditing(item.id)} aria-label={`Edit ${item.name}`}>
+              <CollectionAvatar item={item} />
+              <span><strong>{item.name}</strong><small>{item.parentId ? data.categories.find(c => c.id === item.parentId)?.name : "Primary category"}{" · Priority "}{item.sortOrder}</small>{item.description && <span className="category-list-goal">{item.description}</span>}</span>
+            </button>
+            <CollectionSettings compact item={item} kind="category" save={save} />
+            <button className="text-button" onClick={() => setEditing(item.id)}>Edit</button>
+          </div>
+        ))}
+      </div> : <div className="library-grid">
         {items.map((item) => (
+          <div key={item.id}>
           <button
             className="library-card"
             key={item.id}
@@ -160,19 +187,27 @@ export function Library({ data, save }: { data: Workspace; save: Save }) {
               <p>
                 {"parentId" in item
                   ? data.categories.find((c) => c.id === item.parentId)?.name ||
-                    "Root category"
+                    "Primary category"
                   : "type" in item
                     ? human(String(item.type))
                     : "revision" in item
                       ? `Revision ${String(item.revision)} · ${data.templates.find((t) => t.id === item.id)?.fields.length || 0} fields`
                       : item.description || "Tag"}
               </p>
-              {"isActive" in item && !item.isActive && <small>Inactive</small>}
+              {"parentId" in item && (
+                <>
+                  <small>Priority rank {item.sortOrder}</small>
+                  <p>{item.description || "No goal set yet"}</p>
+                </>
+              )}
+              {"isActive" in item && !item.isActive && <small>{"archivedAt" in item && item.archivedAt ? "Archived" : "Closed"}</small>}
             </div>
             <ArrowUpRight size={16} />
           </button>
+          {tab === "Categories" && "sortOrder" in item && <CollectionSettings item={item} kind="category" save={save} />}
+          </div>
         ))}
-      </div>
+      </div>}
       {!items.length && <Empty title={`Add your first ${tab.toLowerCase()}`} />}
       {editing && (
         <Drawer
@@ -212,7 +247,22 @@ export function Library({ data, save }: { data: Workspace; save: Save }) {
                       ))}
                   </select>
                 </Field>
-                <Field label="Sort order">
+                <Field
+                  label="Goal / why this category matters"
+                  hint="What do you want this area of your life to help you achieve?"
+                >
+                  <textarea
+                    name="description"
+                    rows={4}
+                    maxLength={20000}
+                    defaultValue={category?.description || ""}
+                    placeholder="For example: build the energy and strength to be present for my family."
+                  />
+                </Field>
+                <Field
+                  label="Priority rank"
+                  hint="Lower numbers come first. Use the same rank for equal priorities."
+                >
                   <input
                     type="number"
                     min={0}

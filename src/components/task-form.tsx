@@ -144,6 +144,7 @@ export function TaskForm({
             fields: values,
             repeat: readRepeat(f),
           }),
+      isMicro: f.get("isMicro") === "on",
       color: f.get("color") || "sage",
       icon: f.get("icon") || "none",
       title: f.get("title"),
@@ -178,7 +179,11 @@ export function TaskForm({
           </small>
         </label>
       )}
-      <AppearanceFields color={task?.color} icon={task?.icon} />
+      <AppearanceFields
+        isMicro={task?.isMicro}
+        color={task?.color}
+        icon={task?.icon}
+      />
       {!task && <RepeatFields />}
       <Field label="What’s on your mind?">
         <input
@@ -187,7 +192,7 @@ export function TaskForm({
           required
           maxLength={240}
           defaultValue={task?.title}
-          placeholder="An intention, big or small…"
+          placeholder="What do you need to do?"
           className="title-input"
         />
       </Field>
@@ -196,7 +201,7 @@ export function TaskForm({
           name="description"
           rows={3}
           defaultValue={task?.description || ""}
-          placeholder="A little context for your future self"
+          placeholder="Notes"
         />
       </Field>
       <div className="form-grid">
@@ -333,11 +338,8 @@ export function TaskForm({
         </section>
       )}
       <button className="button primary" disabled={busy}>
-        {busy ? "Saving…" : task ? "Save changes" : "Capture intention"}
+        {busy ? "Saving…" : task ? "Save changes" : "Add task"}
       </button>
-      <p className="form-note">
-        Dates and effort are optional. There’s room for an unfinished thought.
-      </p>
     </form>
   );
 }

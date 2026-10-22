@@ -11,6 +11,8 @@ import {
   localInput,
 } from "./ui";
 import { SeriesSettings, TaskIcon } from "./task-options";
+import { RemoteHistory } from "./remote-history";
+import { TaskComments } from "./task-comments";
 import { TaskPicker } from "./task-picker";
 import { effortTotal } from "@/lib/analytics";
 export function TaskDetail({
@@ -102,6 +104,7 @@ export function TaskDetail({
       </div>
       {tab === "Details" && (
         <>
+          <TaskComments key={task.id} taskId={task.id} timezone={data.user.timezone} save={save} />
           <SeriesSettings task={task} save={save} />
           <TaskForm task={task} data={data} save={save} onDone={() => {}} />
           <section className="subsection">
@@ -110,9 +113,8 @@ export function TaskDetail({
               <p key={r.targetTaskId + r.relationType} className="meta-line">
                 {human(r.relationType)} →{" "}
                 {(() => {
-                  const target = data.tasks.find(
-                    (t) => t.id === r.targetTaskId,
-                  );
+                  const target =
+                    r.target || data.tasks.find((t) => t.id === r.targetTaskId);
                   return target
                     ? target.title +
                         (target.seriesId
@@ -127,6 +129,7 @@ export function TaskDetail({
               onSubmit={(e) => submit(e, "task.relate")}
             >
               <TaskPicker
+                excludeIds={[task.id]}
                 key={task.relationsFrom.length}
                 tasks={data.tasks.filter(
                   (t) => t.id !== task.id && !t.archivedAt,
@@ -174,10 +177,8 @@ export function TaskDetail({
       {tab === "Activity" && (
         <>
           <section className="subsection first">
-            <h3>Record a little effort</h3>
-            <p className="muted">
-              No timer. Just a useful note about what happened.
-            </p>
+            <h3>Record effort</h3>
+
             <form
               className="form-stack"
               onSubmit={(e) => submit(e, "task.effort")}
@@ -233,58 +234,11 @@ export function TaskDetail({
           </section>
           <section className="subsection">
             <h3>History</h3>
-            {task.effort.map((e) => (
-              <div className="history-row" key={e.id}>
-                <span className="history-dot action" />
-                <div>
-                  <strong>{duration(e.minutes)} recorded</strong>
-                  <p>{e.note}</p>
-                  <small>{displayDate(e.occurredOn, "UTC")}</small>
-                </div>
-              </div>
-            ))}
-            {data.events
-              .filter(
-                (e) =>
-                  e.taskId === task.id &&
-                  !(
-                    e.eventType === "EFFORT_RECORDED" &&
-                    e.toValue?.effortEntryId
-                  ),
-              )
-              .map((e) => (
-                <div className="history-row" key={e.id}>
-                  <span className="history-dot" />
-                  <div>
-                    <strong>
-                      {e.eventType === "EFFORT_RECORDED"
-                        ? "Activity logged"
-                        : human(e.eventType)}
-                    </strong>
-                    <p>
-                      {e.fromValue?.status
-                        ? human(String(e.fromValue.status)) + " → "
-                        : ""}
-                      {e.toValue?.status
-                        ? human(String(e.toValue.status))
-                        : e.toValue?.title
-                          ? String(e.toValue.title)
-                          : ""}
-                    </p>
-                    {typeof e.toValue?.note === "string" && (
-                      <p>{e.toValue.note}</p>
-                    )}
-                    {typeof e.toValue?.occurredOn === "string" && (
-                      <p>{displayDate(e.toValue.occurredOn, "UTC")}</p>
-                    )}
-                    <small>
-                      {new Date(e.occurredAt).toLocaleString("en", {
-                        timeZone: data.user.timezone,
-                      })}
-                    </small>
-                  </div>
-                </div>
-              ))}
+            <RemoteHistory
+              taskId={task.id}
+              timezone={data.user.timezone}
+              revision={data}
+            />
           </section>
         </>
       )}
@@ -321,8 +275,8 @@ export function TaskDetail({
           </div>
         ) : (
           <p className="empty">
-            This intention has no template. Choose a template when capturing a
-            new task.
+            This task has no template. Choose a template when capturing a new
+            task.
           </p>
         ))}
     </>

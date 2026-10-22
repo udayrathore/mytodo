@@ -14,6 +14,7 @@ import {
   Leaf,
   Target,
   Repeat2,
+  Ban,
 } from "lucide-react";
 import { taskColors, taskIcons, type RepeatRule } from "@/lib/recurrence";
 import type { Task } from "@/lib/workspace";
@@ -51,9 +52,11 @@ export function TaskIcon({
   ) : null;
 }
 export function AppearanceFields({
+  isMicro = false,
   color = "sage",
   icon = "none",
 }: {
+  isMicro?: boolean;
   color?: string;
   icon?: string;
 }) {
@@ -61,6 +64,10 @@ export function AppearanceFields({
   const [selectedIcon, setIcon] = useState(icon);
   return (
     <div className="appearance-fields">
+      <label className="checkbox-label">
+        <input name="isMicro" type="checkbox" defaultChecked={isMicro} /> Micro
+        task · icon only
+      </label>
       <fieldset>
         <legend>Color</legend>
         <div className="color-options">
@@ -78,25 +85,43 @@ export function AppearanceFields({
           ))}
         </div>
       </fieldset>
-      <label className="field">
-        Icon
-        <div className="icon-selector">
-          <TaskIcon name={selectedIcon} size={20} />
-          <select
-            name="icon"
-            value={selectedIcon}
-            onChange={(e) => setIcon(e.target.value)}
-          >
-            {taskIcons.map((i) => (
-              <option key={i} value={i}>
-                {i === "none"
-                  ? "No icon"
-                  : i.charAt(0).toUpperCase() + i.slice(1)}
-              </option>
-            ))}
-          </select>
+      <fieldset className="task-icon-picker">
+        <legend>Icon</legend>
+        <div className="task-icon-grid">
+          {taskIcons.map((value) => {
+            const label =
+              value === "none"
+                ? "No icon"
+                : value.charAt(0).toUpperCase() + value.slice(1);
+            return (
+              <label
+                key={value}
+                className="task-icon-choice"
+                data-tooltip={label}
+              >
+                <input
+                  type="radio"
+                  name="icon"
+                  value={value}
+                  checked={selectedIcon === value}
+                  onChange={() => setIcon(value)}
+                  aria-label={label}
+                />
+                <span className="task-icon-tile" aria-hidden="true">
+                  {value === "none" ? (
+                    <Ban size={20} />
+                  ) : (
+                    <TaskIcon name={value} size={20} />
+                  )}
+                  {selectedIcon === value && (
+                    <Check className="task-icon-selected" size={10} />
+                  )}
+                </span>
+              </label>
+            );
+          })}
         </div>
-      </label>
+      </fieldset>
     </div>
   );
 }

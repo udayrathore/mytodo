@@ -10,6 +10,7 @@ type Blueprint = {
   templateId: string | null;
   priority: "LOW" | "MEDIUM" | "HIGH";
   estimatedMinutes: number | null;
+  isMicro?: boolean;
   color: string;
   icon: string;
   dueOffsetMs: number | null;
@@ -31,6 +32,7 @@ export async function taskBlueprint(tx: Tx, id: string): Promise<Blueprint> {
       templateId: t.templateId,
       priority: t.priority,
       estimatedMinutes: t.estimatedMinutes,
+      isMicro: t.isMicro,
       color: t.color,
       icon: t.icon,
       dueOffsetMs:
@@ -52,12 +54,15 @@ export async function generateSeries(
   tx: Tx,
   series: TaskSeries,
   through: string,
+  windowStart?: string,
 ) {
   if (!series.active) return;
   const start = day(series.startsOn);
-  const from = series.generatedThrough
-    ? addDays(day(series.generatedThrough), 1)
-    : start;
+  const from =
+    windowStart ||
+    (series.generatedThrough
+      ? addDays(day(series.generatedThrough), 1)
+      : start);
   if (from > through) return;
   const b = series.blueprint as unknown as Blueprint;
   for (const date of occurrenceDates(
@@ -112,6 +117,7 @@ export async function generateSeries(
         templateId: b.templateId,
         priority: b.priority,
         estimatedMinutes: b.estimatedMinutes,
+        isMicro: b.isMicro ?? false,
         color: b.color,
         icon: b.icon,
         dueAt:
@@ -158,10 +164,11 @@ export async function generateSeries(
       },
     });
   }
-  await tx.taskSeries.update({
-    where: { id: series.id },
-    data: { generatedThrough: asDate(through) },
-  });
+  if (!windowStart)
+    await tx.taskSeries.update({
+      where: { id: series.id },
+      data: { generatedThrough: asDate(through) },
+    });
 }
 export async function attachSeries(
   tx: Tx,
@@ -215,29 +222,48 @@ export async function attachSeries(
       toValue: { seriesId: series.id, repeat: rule },
     },
   });
-  await generateSeries(tx, series, addDays(start > today ? start : today, 90));
+  await generateSeries(tx, series, addDays(start > today ? start : today, 30));
   return series;
 }
 export async function ensureRecurringTasks(
   userId: string,
   today: string,
   through?: string,
+  from?: string,
 ) {
   const limit = addDays(today, 730);
   if (through && through > limit)
     throw new DomainError(
       "Recurring tasks can be viewed up to two years ahead.",
     );
-  const horizon =
-    through && through > addDays(today, 90) ? through : addDays(today, 90);
+  const horizon = through || addDays(today, 6);
+  const windowStart = from || addDays(horizon, -6);
   // A per-owner row lock serializes concurrent tab refreshes before generation.
   await database().$transaction(
     async (tx) => {
       await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId}::uuid FOR UPDATE`;
       const series = await tx.taskSeries.findMany({
-        where: { userId, active: true },
+        where: {
+          userId,
+          active: true,
+          startsOn: { lte: asDate(horizon)! },
+          OR: [{ endsOn: null }, { endsOn: { gte: asDate(windowStart)! } }],
+        },
       });
-      for (const s of series) await generateSeries(tx, s, horizon);
+      for (const s of series) {
+        if (s.generatedThrough && day(s.generatedThrough) >= horizon) continue;
+        const actualFrom = windowStart < today ? today : windowStart;
+        await generateSeries(tx, s, horizon, actualFrom);
+        // Only advance the contiguous cursor when this window joins the existing prefix.
+        if (
+          s.generatedThrough &&
+          actualFrom <= addDays(day(s.generatedThrough), 1)
+        )
+          await tx.taskSeries.update({
+            where: { id: s.id },
+            data: { generatedThrough: asDate(horizon) },
+          });
+      }
     },
     { timeout: 60000 },
   );
@@ -260,7 +286,7 @@ export async function changeSchedule(
   const owner = await tx.user.findUniqueOrThrow({ where: { id: userId } });
   const today = dateKey(new Date(), owner.timezone);
   const horizon = [
-    addDays(today, 90),
+    addDays(today, 30),
     s.generatedThrough ? day(s.generatedThrough) : start,
   ]
     .sort()
@@ -332,6 +358,6 @@ export async function changeSchedule(
         toValue: { repeat: { ...rule, active }, scope: "SERIES_SCHEDULE" },
       },
     });
-  await generateSeries(tx, updated, horizon);
+  await generateSeries(tx, updated, addDays(today, 30));
   return updated;
 }

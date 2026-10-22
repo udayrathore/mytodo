@@ -42,6 +42,7 @@ const fieldInput = z.record(
   ]),
 );
 const taskFields = {
+  isMicro: z.boolean().default(false),
   color: z.enum(taskColors).default("sage"),
   icon: z.enum(taskIcons).default("none"),
   title,
@@ -62,6 +63,35 @@ const taskFields = {
   relationshipType: z.string().trim().min(1).max(80).default("CONTRIBUTES_TO"),
 };
 export const commandSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("collection.settings"), id: z.uuid(), kind: z.enum(["category", "project"]), status: z.enum(["ACTIVE", "CLOSED", "ARCHIVED"]).optional(), imageData: z.string().max(65000).regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/).nullable().optional() }),
+  z.object({ type: z.literal("task.comment"), id: z.uuid(), body: z.string().trim().min(1).max(5000) }),
+  z.object({
+    type: z.literal("project.save"),
+    id: id.optional(),
+    name: title,
+    description: text.default(""),
+    categoryIds: z.array(id).min(1).max(100),
+  }),
+  z.object({
+    type: z.literal("project.linkTask"),
+    id,
+    taskId: id,
+    linked: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("task.schedule"),
+    id,
+    version: z.number().int().min(0),
+    plannedDate: dateOnly,
+  }),
+  z.object({
+    type: z.literal("tasks.capture"),
+    projectId: id.optional(),
+    tasks: z
+      .array(z.object({ title, primaryCategoryId: id, plannedDate: dateOnly }))
+      .min(1)
+      .max(50),
+  }),
   z.object({
     type: z.literal("series.create"),
     id,
@@ -78,6 +108,7 @@ export const commandSchema = z.discriminatedUnion("type", [
 
   z.object({
     type: z.literal("activity.log"),
+    isMicro: z.boolean().default(false),
     color: z.enum(taskColors).default("sage"),
     icon: z.enum(taskIcons).default("none"),
     taskId: id.nullable().default(null),
@@ -138,6 +169,7 @@ export const commandSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("category.save"),
+    description: text.optional(),
     id: id.optional(),
     name: title,
     parentId: nullableId,

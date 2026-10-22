@@ -1,6 +1,12 @@
 "use client";
 import { useMemo, useState, useEffect, type FormEvent } from "react";
-import { ChevronLeft, ChevronRight, Check, ArrowUpRight } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Check,
+  ArrowUpRight,
+  Plus,
+} from "lucide-react";
 import type { Workspace, Task } from "@/lib/workspace";
 import { addDays } from "@/lib/domain";
 import { trackerColumns, trackerEntries, taskEntries } from "@/lib/tracker";
@@ -40,7 +46,33 @@ export function CategoryGrid({
   const columns = useMemo(() => trackerColumns(data), [data]);
   const [showActivity, setShowActivity] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
-  const todos = useMemo(() => taskEntries(data), [data]);
+  const nextIds = useMemo(() => {
+    const next = new Map<string, Task>();
+    for (const task of [...data.tasks].sort(
+      (a, b) =>
+        (a.plannedDate || "9999").localeCompare(b.plannedDate || "9999") ||
+        a.id.localeCompare(b.id),
+    )) {
+      if (
+        task.seriesId &&
+        !task.archivedAt &&
+        !["COMPLETED", "CANCELLED"].includes(task.status) &&
+        !next.has(task.seriesId)
+      )
+        next.set(task.seriesId, task);
+    }
+    return new Set([...next.values()].map((t) => t.id));
+  }, [data]);
+  const todos = useMemo(
+    () =>
+      taskEntries(data).filter(
+        (e) =>
+          !e.task.seriesId ||
+          e.task.status === "COMPLETED" ||
+          nextIds.has(e.task.id),
+      ),
+    [data, nextIds],
+  );
   const entries = useMemo(
     () =>
       showActivity
@@ -72,6 +104,7 @@ export function CategoryGrid({
   const unplaced = data.tasks.filter(
     (t) =>
       !t.archivedAt &&
+      (!t.seriesId || nextIds.has(t.id)) &&
       !["COMPLETED", "CANCELLED"].includes(t.status) &&
       ((t.plannedDate && t.plannedDate.slice(0, 10) < data.today) ||
         !todos.some((e) => e.task.id === t.id) ||
@@ -105,26 +138,7 @@ export function CategoryGrid({
             Today
           </button>
         </div>
-        <div className="tracker-options">
-          <label className="tracker-jump">
-            Jump to{" "}
-            <input
-              aria-label="Jump to date"
-              type="date"
-              max={addDays(data.today, 724)}
-              value={start}
-              onChange={(e) => e.target.value && setStart(e.target.value)}
-            />
-          </label>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={showActivity}
-              onChange={(e) => setShowActivity(e.target.checked)}
-            />{" "}
-            Show activity history
-          </label>
-        </div>
+
       </div>
       <div
         className="sheet-scroll"
@@ -140,7 +154,7 @@ export function CategoryGrid({
           <thead>
             <tr>
               <th scope="col" className="date-column">
-                Date<span>One day at a time</span>
+                Date
               </th>
               {columns.map((c, i) => (
                 <th
@@ -152,10 +166,13 @@ export function CategoryGrid({
                     {c.name}
                     <ArrowUpRight size={13} />
                   </button>
+                  {c.description && (
+                    <span className="category-goal">{c.description}</span>
+                  )}
                   <span>
                     {c.descendants.size > 1
                       ? `${c.descendants.size - 1} ${c.descendants.size === 2 ? "subcategory" : "subcategories"}`
-                      : "Tasks & activity"}
+                      : ""}
                   </span>
                 </th>
               ))}
@@ -195,7 +212,13 @@ export function CategoryGrid({
                             mode: day < data.today ? "log" : "plan",
                           })
                         }
-                      />
+                      >
+                        <Plus
+                          className="cell-add-icon"
+                          size={20}
+                          aria-hidden="true"
+                        />
+                      </button>
                       <div className="sheet-cell">
                         {items.map((e) =>
                           showActivity ? (
@@ -213,9 +236,55 @@ export function CategoryGrid({
                                 <span className="entry-note">{e.note}</span>
                               )}
                             </button>
+                          ) : e.task.isMicro ? (
+                            <button
+                              key={e.id}
+                              className={
+                                "micro-task color-" +
+                                e.task.color +
+                                (e.task.status === "COMPLETED"
+                                  ? " micro-complete"
+                                  : "")
+                              }
+                              role="checkbox"
+                              aria-checked={e.task.status === "COMPLETED"}
+                              aria-label={`${e.task.status === "COMPLETED" ? "Reopen" : "Complete"} ${e.task.title}`}
+                              data-tooltip={`${e.task.title} · ${e.task.status === "COMPLETED" ? "Completed — click to reopen" : "Click to complete"}`}
+                              disabled={pending !== null}
+                              onClick={() =>
+                                changeStatus(
+                                  e.task,
+                                  e.task.status === "COMPLETED"
+                                    ? "PLANNED"
+                                    : "COMPLETED",
+                                )
+                              }
+                            >
+                              <TaskIcon
+                                name={
+                                  e.task.icon === "none" ? "check" : e.task.icon
+                                }
+                                size={19}
+                              />
+                              {e.task.status === "COMPLETED" && (
+                                <span
+                                  className="micro-strike"
+                                  aria-hidden="true"
+                                />
+                              )}
+                            </button>
                           ) : (
                             <article
                               key={e.id}
+                              onClick={(event) => {
+                                if (
+                                  (event.target as Element).closest(
+                                    ".todo-check",
+                                  )
+                                )
+                                  return;
+                                openTask(e.task);
+                              }}
                               className={
                                 "sheet-entry todo-entry color-" +
                                 (e.task.color || "sage") +
@@ -232,14 +301,15 @@ export function CategoryGrid({
                                   aria-checked={e.task.status === "COMPLETED"}
                                   aria-label={`${e.task.status === "COMPLETED" ? "Reopen" : "Complete"} ${e.task.title}`}
                                   disabled={pending !== null}
-                                  onClick={() =>
+                                  onClick={(event) => {
+                                    event.stopPropagation();
                                     changeStatus(
                                       e.task,
                                       e.task.status === "COMPLETED"
                                         ? "PLANNED"
                                         : "COMPLETED",
-                                    )
-                                  }
+                                    );
+                                  }}
                                 >
                                   {e.task.status === "COMPLETED" && (
                                     <Check size={13} />
@@ -247,42 +317,27 @@ export function CategoryGrid({
                                 </button>
                                 <button
                                   className="todo-title"
-                                  onClick={() => openTask(e.task)}
+                                  aria-label={`Open ${e.task.title}`}
                                 >
                                   <TaskIcon name={e.task.icon} />
                                   {e.task.title}
                                 </button>
+                                {e.task.seriesId && (
+                                  <span
+                                    className="repeat-icon"
+                                    data-tooltip="Repeating task"
+                                    role="img"
+                                    aria-label="Repeating task"
+                                  >
+                                    <Repeat2 size={13} aria-hidden="true" />
+                                  </span>
+                                )}
                               </div>
-                              {e.task.seriesId && (
-                                <span
-                                  className="repeat-badge"
-                                  title="Repeating task"
-                                >
-                                  <Repeat2 size={11} /> Repeats
+                              {e.task.status === "IN_PROGRESS" && (
+                                <span className="todo-status status-in_progress">
+                                  Ongoing
                                 </span>
                               )}
-                              <select
-                                className={
-                                  "todo-status status-" +
-                                  e.task.status.toLowerCase()
-                                }
-                                aria-label={`Status of ${e.task.title}`}
-                                disabled={pending !== null}
-                                value={
-                                  e.task.status === "COMPLETED"
-                                    ? "COMPLETED"
-                                    : e.task.status === "IN_PROGRESS"
-                                      ? "IN_PROGRESS"
-                                      : "PLANNED"
-                                }
-                                onChange={(ev) =>
-                                  changeStatus(e.task, ev.target.value)
-                                }
-                              >
-                                <option value="PLANNED">Upcoming</option>
-                                <option value="IN_PROGRESS">Ongoing</option>
-                                <option value="COMPLETED">Completed</option>
-                              </select>
                               {e.task.primaryCategoryId !== c.id && (
                                 <span className="entry-category">
                                   {
@@ -305,40 +360,52 @@ export function CategoryGrid({
         </table>
       </div>
       {!columns.length && (
-        <p className="tracker-help">
-          Add a parent category in Library to start your tracker.
-        </p>
+        <p className="tracker-help">Add a primary category in Categories.</p>
       )}
-      <div className="tracker-footnote">
-        <span>Click a cell to add a task. Check it off when you’re done.</span>
-        <span>Upcoming → Ongoing → Completed</span>
-      </div>
       {unplaced.length > 0 && (
         <details className="unplaced-tasks" open>
           <summary>
             {unplaced.length} unfinished tasks from earlier or without a place
           </summary>
           <div>
-            {unplaced.map((t) => (
-              <div
-                className={"backlog-task color-" + (t.color || "sage")}
-                key={t.id}
-              >
+            {unplaced.map((t) =>
+              t.isMicro ? (
                 <button
-                  className="todo-check"
+                  key={t.id}
+                  className="micro-task"
                   role="checkbox"
                   aria-checked={false}
                   aria-label={`Complete ${t.title}`}
+                  data-tooltip={`${t.title} · ${t.plannedDate?.slice(0, 10) || "Unscheduled"} · Click to complete`}
                   disabled={pending !== null}
                   onClick={() => changeStatus(t, "COMPLETED")}
-                />
-                <button onClick={() => openTask(t)}>
-                  <TaskIcon name={t.icon} />
-                  {t.title}
-                  <ArrowUpRight size={13} />
+                >
+                  <TaskIcon
+                    name={t.icon === "none" ? "check" : t.icon}
+                    size={19}
+                  />
                 </button>
-              </div>
-            ))}
+              ) : (
+                <div
+                  className={"backlog-task color-" + (t.color || "sage")}
+                  key={t.id}
+                >
+                  <button
+                    className="todo-check"
+                    role="checkbox"
+                    aria-checked={false}
+                    aria-label={`Complete ${t.title}`}
+                    disabled={pending !== null}
+                    onClick={() => changeStatus(t, "COMPLETED")}
+                  />
+                  <button onClick={() => openTask(t)}>
+                    <TaskIcon name={t.icon} />
+                    {t.title}
+                    <ArrowUpRight size={13} />
+                  </button>
+                </div>
+              ),
+            )}
           </div>
         </details>
       )}
@@ -398,6 +465,7 @@ export function QuickTaskForm({
       mode === "plan"
         ? {
             type: "task.create",
+            isMicro: f.get("isMicro") === "on",
             color: f.get("color") || "sage",
             icon: f.get("icon") || "none",
             repeat: readRepeat(f),
@@ -408,6 +476,7 @@ export function QuickTaskForm({
           }
         : {
             type: "activity.log",
+            isMicro: f.get("isMicro") === "on",
             color: f.get("color") || "sage",
             icon: f.get("icon") || "none",
             taskId: taskId || null,
@@ -464,6 +533,7 @@ export function QuickTaskForm({
           </label>
           {mode === "log" && (
             <TaskPicker
+              categoryId={categoryId || undefined}
               key={categoryId}
               tasks={tasks}
               label="Link to a task"
@@ -489,7 +559,7 @@ export function QuickTaskForm({
               maxLength={20000}
               placeholder={
                 mode === "plan"
-                  ? "A little context for later…"
+                  ? "Notes"
                   : "What happened? What did you work on?"
               }
             />

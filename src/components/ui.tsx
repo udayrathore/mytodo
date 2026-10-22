@@ -128,10 +128,12 @@ export function Chips({
   );
 }
 export const human = (value: string) =>
-  value
-    .toLowerCase()
-    .replaceAll("_", " ")
-    .replace(/^./, (s) => s.toUpperCase());
+  value === "PLANNED"
+    ? "Upcoming"
+    : value
+        .toLowerCase()
+        .replaceAll("_", " ")
+        .replace(/^./, (s) => s.toUpperCase());
 export const duration = (minutes: number) =>
   minutes >= 60
     ? `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ""}`

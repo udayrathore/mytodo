@@ -1,5 +1,5 @@
 "use client";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Plus, Search, ArrowUpRight } from "lucide-react";
 import type { Workspace, Journal } from "@/lib/workspace";
 import type { Save } from "./task-form";
@@ -12,8 +12,20 @@ import {
   localInput,
   inputToIso,
 } from "./ui";
-export function JournalView({ data, save }: { data: Workspace; save: Save }) {
+export function JournalView({
+  data,
+  save,
+  setScope,
+}: {
+  data: Workspace;
+  save: Save;
+  setScope: (key: string, value: string) => void;
+}) {
   const [query, setQuery] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setScope("journalSearch", query), 200);
+    return () => clearTimeout(timer);
+  }, [query, setScope]);
   const [editing, setEditing] = useState<Journal | "new" | null>(null);
   const entries = data.journals.filter(
     (j) =>
@@ -59,11 +71,7 @@ export function JournalView({ data, save }: { data: Workspace; save: Save }) {
           </button>
         ))}
       </div>
-      {!entries.length && (
-        <Empty title="A place to notice things">
-          Write an observation. It doesn’t have to become a task.
-        </Empty>
-      )}
+      {!entries.length && <Empty title="No journal entries." />}
       {editing && (
         <Drawer
           title={editing === "new" ? "New observation" : "Your observation"}
@@ -124,7 +132,7 @@ function JournalForm({
           name="title"
           maxLength={240}
           defaultValue={journal?.title || ""}
-          placeholder="Give this thought a name"
+          placeholder="Title"
           className="title-input"
         />
       </Field>
@@ -134,7 +142,7 @@ function JournalForm({
           required
           rows={12}
           defaultValue={journal?.content || ""}
-          placeholder="Something learned, a passing thought, a moment worth keeping…"
+          placeholder="Write an entry"
         />
       </Field>
       <Field label={`Occurred at · ${data.user.timezone}`}>

@@ -1,7 +1,13 @@
 "use client";
-import { useEffect, useState, useCallback, type FormEvent } from "react";
+import { DashboardTasks } from "./dashboard-tasks";
 import {
-  Aperture,
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+  type FormEvent,
+} from "react";
+import {
   Sun,
   CalendarDays,
   Inbox,
@@ -35,6 +41,10 @@ import { TaskDetail } from "./task-detail";
 import { JournalView } from "./journal";
 import { Library } from "./library";
 import { Planning } from "./planning";
+import { useRemote } from "./use-remote";
+import { CategorySheet } from "./category-sheet";
+import { Projects } from "./projects";
+import { CategoryDistribution } from "./category-distribution";
 import { Insights, Timeline } from "./insights";
 const nav = [
   { id: "today", name: "My day", icon: Sun },
@@ -42,51 +52,28 @@ const nav = [
   { id: "tasks", name: "Tasks", icon: Inbox },
   { id: "journal", name: "Journal", icon: BookOpen },
   { id: "timeline", name: "Timeline", icon: History },
+  { id: "projects", name: "Projects", icon: LibraryBig },
+  { id: "categories", name: "Categories", icon: LibraryBig },
+  { id: "distribution", name: "Category balance", icon: ChartNoAxesCombined },
   { id: "insights", name: "Insights", icon: ChartNoAxesCombined },
 ];
-const headings: Record<
-  string,
-  { title: string; subtitle: string; eyebrow: string }
-> = {
-  today: {
-    title: "What needs doing?",
-    subtitle: "Add a task. Take it one step at a time. Check it off.",
-    eyebrow: "Your daily to-dos",
-  },
-  week: {
-    title: "A week, thoughtfully considered.",
-    subtitle: "Choose what belongs here. Let the rest wait.",
-    eyebrow: "Planning & review",
-  },
-  tasks: {
-    title: "Every intention has a place.",
-    subtitle: "Keep the unfinished, find the relevant, follow the thread.",
-    eyebrow: "Your intentions",
-  },
-  journal: {
-    title: "Pay attention. Leave a note.",
-    subtitle: "The things you notice are part of the story.",
-    eyebrow: "Your observations",
-  },
-  timeline: {
-    title: "The days, as they happened.",
-    subtitle: "Intentions, actions, and observations in one continuous record.",
-    eyebrow: "Your timeline",
-  },
-  insights: {
-    title: "Find the patterns worth noticing.",
-    subtitle: "A clearer picture of where your attention goes.",
-    eyebrow: "Your insights",
-  },
-  library: {
-    title: "A structure that grows with you.",
-    subtitle: "Organize around the way you see your world.",
-    eyebrow: "Your library",
-  },
+const headings: Record<string, string> = {
+  today: "My day",
+  tasks: "Tasks",
+  week: "Weekly plan",
+  journal: "Journal",
+  timeline: "Timeline",
+  insights: "Insights",
+  category: "Category workspace",
+  projects: "Projects",
+  categories: "Categories",
+  distribution: "Category balance",
+  library: "Library",
 };
 export function Workspace({ initial }: { initial: Data }) {
   const [data, setData] = useState(initial);
   const [view, setView] = useState("today");
+  const [dashboard, setDashboard] = useState<"execute" | "manage" | "plan">("execute");
   const [category, setCategory] = useState("");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("OPEN");
@@ -102,20 +89,96 @@ export function Workspace({ initial }: { initial: Data }) {
   const [capture, setCapture] = useState("");
   const [expandedSeries, setExpandedSeries] = useState<string[]>([]);
   const [visible, setVisible] = useState(60);
-  const refresh = useCallback(async (through?: string) => {
-    const response = await fetch(
-      through
-        ? `/api/workspace?through=${encodeURIComponent(through)}`
-        : "/api/workspace",
-      { cache: "no-store" },
+  const query = useRef<Record<string, string>>({});
+  const requestNumber = useRef(0);
+  const [loading, setLoading] = useState(false);
+  query.current = {
+    ...query.current,
+    view,
+    dashboard,
+    ...(category ? { category } : { category: "" }),
+    search:
+      (view === "tasks" || view === "today")
+        ? search
+        : view === "journal"
+          ? query.current.journalSearch || ""
+          : "",
+    status: view === "tasks" ? status : "ALL",
+    archive: String(view === "tasks" && archive),
+    tag: view === "tasks" || view === "today" ? tag : "",
+    entity: view === "tasks" || view === "today" ? entity : "",
+    priority: view === "tasks" ? priority : "",
+  };
+  const refresh = useCallback(async (through?: string, append = false) => {
+    if (through) query.current.through = through;
+    const number = ++requestNumber.current;
+    const params = new URLSearchParams(
+      Object.entries(query.current).filter(
+        ([k, v]) => v && k !== "journalSearch",
+      ),
     );
-    if (response.status === 401) {
-      window.location.href = "/login";
-      return;
+    if (!append) params.delete("cursor");
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/workspace?${params}`, {
+        cache: "no-store",
+      });
+      if (response.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+      if (!response.ok) throw new Error("Could not load the workspace.");
+      const incoming: Data = await response.json();
+      if (number !== requestNumber.current) return;
+      setData((old) =>
+        append
+          ? {
+              ...incoming,
+              tasks: [
+                ...new Map(
+                  [...old.tasks, ...incoming.tasks].map((t) => [t.id, t]),
+                ).values(),
+              ],
+              events: [
+                ...new Map(
+                  [...old.events, ...incoming.events].map((e) => [e.id, e]),
+                ).values(),
+              ],
+              journals: [
+                ...new Map(
+                  [...old.journals, ...incoming.journals].map((j) => [j.id, j]),
+                ).values(),
+              ],
+            }
+          : incoming,
+      );
+      if (append) setVisible((v) => v + 100);
+    } finally {
+      if (number === requestNumber.current) setLoading(false);
     }
-    if (!response.ok) throw new Error("Could not refresh the workspace.");
-    setData(await response.json());
   }, []);
+  useEffect(() => {
+    delete query.current.cursor;
+    const timer = setTimeout(() => {
+      void refresh().catch((e) => setNotice({ text: e.message, error: true }));
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [view, dashboard, category, search, status, archive, tag, entity, priority, refresh]);
+  const setScope = useCallback(
+    (key: string, value: string) => {
+      query.current[key] = value;
+      if (key === "journalSearch") query.current.search = value;
+      delete query.current.cursor;
+      void refresh().catch((e) => setNotice({ text: e.message, error: true }));
+    },
+    [refresh],
+  );
+  const detail = useRemote<Data>(
+    drawer && drawer !== "new"
+      ? `/api/workspace?view=task&task=${drawer}`
+      : null,
+    data,
+  );
   const loadRange = useCallback(
     async (through: string) => {
       try {
@@ -133,6 +196,8 @@ export function Workspace({ initial }: { initial: Data }) {
     const params = new URLSearchParams(window.location.search);
     const v = params.get("view");
     if (v && headings[v]) setView(v);
+    const cat = params.get("category");
+    if (cat) setCategory(cat);
     const t = params.get("task");
     if (t) setDrawer(t);
   }, []);
@@ -173,8 +238,8 @@ export function Workspace({ initial }: { initial: Data }) {
       });
       const result = await r.json();
       if (!r.ok) throw new Error(result.error || "Could not save.");
-      await refresh();
-      setNotice({ text: "Saved to your workspace.", error: false });
+      if (command.type !== "task.comment") await refresh();
+      setNotice({ text: "Saved.", error: false });
       return true;
     } catch (e) {
       setNotice({
@@ -187,18 +252,37 @@ export function Workspace({ initial }: { initial: Data }) {
     }
   }
   function navigate(next: string, cat = "") {
+    delete query.current.project;
+    delete query.current.period;
+    delete query.current.cursor;
+    delete query.current.through;
     setView(next);
     setCategory(cat);
+    setEntity("");
+    setTag("");
+    setSearch("");
     setVisible(60);
-    window.history.replaceState({}, "", `/?view=${next}`);
+    window.history.replaceState(
+      {},
+      "",
+      `/?view=${next}${cat ? `&category=${encodeURIComponent(cat)}` : ""}`,
+    );
   }
-  function openTask(t: Task) {
+  function openTask(t: Pick<Task, "id">) {
     setDrawer(t.id);
-    window.history.replaceState({}, "", `/?view=${view}&task=${t.id}`);
+    window.history.replaceState(
+      {},
+      "",
+      `/?view=${view}${category ? `&category=${encodeURIComponent(category)}` : ""}&task=${t.id}`,
+    );
   }
   function closeDrawer() {
     setDrawer(null);
-    window.history.replaceState({}, "", `/?view=${view}`);
+    window.history.replaceState(
+      {},
+      "",
+      `/?view=${view}${category ? `&category=${encodeURIComponent(category)}` : ""}`,
+    );
   }
   async function quickCapture(e: FormEvent) {
     e.preventDefault();
@@ -231,9 +315,9 @@ export function Workspace({ initial }: { initial: Data }) {
       (!priority || t.priority === priority),
   );
   const groupedTasks = groupTasks(filtered);
-  const selected = data.tasks.find((t) => t.id === drawer);
+  const selected = detail.data?.tasks.find((t) => t.id === drawer);
   const heading = headings[view];
-  const taskRows = (tasks: Task[], empty = "Nothing here, for now.") => (
+  const taskRows = (tasks: Task[], empty = "No tasks.") => (
     <div className="task-list">
       {tasks.map((t) => (
         <div
@@ -318,11 +402,7 @@ export function Workspace({ initial }: { initial: Data }) {
           </div>
         </div>
       ))}
-      {!tasks.length && (
-        <Empty title={empty}>
-          Capture something new, or leave a little space.
-        </Empty>
-      )}
+      {!tasks.length && <Empty title={empty} />}
     </div>
   );
   const due = data.reminders.filter((r) => r.status === "DELIVERED");
@@ -334,14 +414,6 @@ export function Workspace({ initial }: { initial: Data }) {
         </a>
         <div className="main-shell">
           <header className="tracker-topbar">
-            <a className="brand" href="/">
-              <span className="brand-mark">
-                <Aperture size={24} strokeWidth={1.6} />
-              </span>
-              <div>
-                Still<span>PERSONAL INTELLIGENCE</span>
-              </div>
-            </a>
             <nav aria-label="Main navigation" className="top-navigation">
               {nav
                 .filter((n) => ["today", "tasks"].includes(n.id))
@@ -392,10 +464,12 @@ export function Workspace({ initial }: { initial: Data }) {
                 <RefreshCw size={16} className={saving ? "spin" : ""} />
               </button>
               <button
-                className="button primary"
+                className="floating-add"
+                aria-label="Add task"
+                data-tooltip="Add task"
                 onClick={() => setDrawer("new")}
               >
-                <Plus size={16} /> New task
+                <Plus size={26} />
               </button>
               <button
                 className="icon-button"
@@ -410,29 +484,7 @@ export function Workspace({ initial }: { initial: Data }) {
             </div>
           </header>
           <main id="main">
-            <div className="page-heading">
-              <div>
-                <span className="eyebrow">{heading.eyebrow}</span>
-                <h1>
-                  {category
-                    ? data.categories.find((c) => c.id === category)?.name
-                    : heading.title}
-                </h1>
-                <p>{heading.subtitle}</p>
-              </div>
-              {view === "today" && (
-                <div className="date-badge">
-                  <Sun size={21} />
-                  <span>
-                    {new Date(data.today + "T00:00:00Z").toLocaleDateString(
-                      "en",
-                      { weekday: "long", timeZone: "UTC" },
-                    )}
-                    <strong>{displayDate(data.today, "UTC")}</strong>
-                  </span>
-                </div>
-              )}
-            </div>
+            <h1 className="sr-only">{heading}</h1>
             {due.length > 0 && (
               <div className="reminders">
                 <Bell size={18} />
@@ -471,7 +523,7 @@ export function Workspace({ initial }: { initial: Data }) {
                   maxLength={240}
                   value={capture}
                   onChange={(e) => setCapture(e.target.value)}
-                  placeholder="Capture an intention…"
+                  placeholder="Add an upcoming task…"
                   required
                 />
                 <button disabled={saving} type="submit">
@@ -479,13 +531,33 @@ export function Workspace({ initial }: { initial: Data }) {
                 </button>
               </form>
             )}
-            {view === "today" && (
+            {view === "today" && <>
+              <div className="dashboard-toolbar">
+                <div className="view-toggle" role="group" aria-label="Dashboard view">
+                  {(["execute", "manage", "plan"] as const).map(mode => <button key={mode} aria-pressed={dashboard === mode} onClick={() => {
+                    delete query.current.through;
+                    delete query.current.cursor;
+                    setDashboard(mode);
+                  }}>{mode[0].toUpperCase() + mode.slice(1)}</button>)}
+                </div>
+              </div>
+              {dashboard !== "plan" && <DashboardTasks mode={dashboard} data={data} save={save} openTask={openTask}
+                search={search} onSearch={setSearch} scope={{ category, entity, tag }}
+                onScope={(kind, id) => {
+                  setCategory(kind === "category" ? id : "");
+                  setEntity(kind === "entity" ? id : "");
+                  setTag(kind === "tag" ? id : "");
+                  setSearch("");
+                  setDashboard("execute");
+                }} />}
+            </>}
+            {view === "today" && dashboard === "plan" && (
               <CategoryGrid
                 onRange={loadRange}
                 data={data}
                 save={save}
                 openTask={openTask}
-                openCategory={(id) => navigate("tasks", id)}
+                openCategory={(id) => navigate("category", id)}
               />
             )}
             {view === "tasks" && (
@@ -511,7 +583,7 @@ export function Workspace({ initial }: { initial: Data }) {
                       aria-label="Search tasks"
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Search intentions…"
+                      placeholder="Search tasks…"
                     />
                   </div>
                   <select
@@ -582,7 +654,11 @@ export function Workspace({ initial }: { initial: Data }) {
                     <h2>
                       {category
                         ? data.categories.find((c) => c.id === category)?.name
-                        : "Intentions"}{" "}
+                        : status === "PLANNED"
+                          ? "Upcoming tasks"
+                          : status === "OPEN"
+                            ? "Open tasks"
+                            : "Tasks"}{" "}
                       <span className="count">{groupedTasks.length}</span>
                     </h2>
                     {category && (
@@ -610,7 +686,7 @@ export function Workspace({ initial }: { initial: Data }) {
                         >
                           <span>{group.occurrences[0].title} · Repeating</span>
                           <span>
-                            {group.occurrences.length} matching dates ·{" "}
+                            {group.occurrences.length} loaded dates ·{" "}
                             {expandedSeries.includes(group.key)
                               ? "Hide"
                               : "Show dates"}
@@ -623,8 +699,7 @@ export function Workspace({ initial }: { initial: Data }) {
                       <div key={group.key}>{taskRows(group.occurrences)}</div>
                     ),
                   )}
-                  {!groupedTasks.length &&
-                    taskRows([], "No matching intentions.")}
+                  {!groupedTasks.length && taskRows([], "No matching tasks.")}
                   {groupedTasks.length > visible && (
                     <button
                       className="panel-link"
@@ -636,15 +711,95 @@ export function Workspace({ initial }: { initial: Data }) {
                 </section>
               </>
             )}
-            {view === "week" && (
-              <Planning data={data} save={save} openTask={openTask} />
+            {view === "category" && (
+              <>
+                <div className="section-toolbar">
+                  <button
+                    className="text-button"
+                    onClick={() => navigate("today")}
+                  >
+                    ← All categories
+                  </button>
+                  <label className="field">
+                    Category
+                    <select
+                      value={category}
+                      onChange={(e) => navigate("category", e.target.value)}
+                    >
+                      <option value="">Choose a category</option>
+                      {data.categories
+                        .filter((c) => c.isActive)
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                </div>
+                {category ? (
+                  <CategorySheet
+                    key={category}
+                    data={data}
+                    categoryId={category}
+                    save={save}
+                    openTask={openTask}
+                    onRange={loadRange}
+                  />
+                ) : (
+                  <p>Choose a category to open its spreadsheet.</p>
+                )}
+              </>
             )}
-            {view === "journal" && <JournalView data={data} save={save} />}
+            {view === "projects" && (
+              <Projects
+                setScope={setScope}
+                data={data}
+                save={save}
+                openTask={openTask}
+                onRange={loadRange}
+              />
+            )}
+            {view === "categories" && (
+              <Library
+                key="categories"
+                data={data}
+                save={save}
+                categoriesOnly
+              />
+            )}
+            {view === "distribution" && <CategoryDistribution data={data} />}
+            {view === "week" && (
+              <Planning
+                data={data}
+                save={save}
+                openTask={openTask}
+                setScope={setScope}
+              />
+            )}
+            {view === "journal" && (
+              <JournalView data={data} save={save} setScope={setScope} />
+            )}
             {view === "timeline" && (
               <Timeline data={data} openTask={openTask} />
             )}
             {view === "insights" && <Insights data={data} />}
             {view === "library" && <Library data={data} save={save} />}
+            {loading && <p role="status">Loading…</p>}
+            {data.page?.view === view && data.page.nextCursor && (
+              <button
+                className="button"
+                disabled={loading}
+                onClick={() => {
+                  query.current.cursor = data.page!.nextCursor!;
+                  void refresh(undefined, true).catch((e) =>
+                    setNotice({ text: e.message, error: true }),
+                  );
+                }}
+              >
+                Load more {view === "journal" ? "entries" : "tasks"}
+              </button>
+            )}
           </main>
         </div>
         {drawer && (
@@ -663,12 +818,17 @@ export function Workspace({ initial }: { initial: Data }) {
               <TaskDetail
                 key={selected.id + ":" + selected.version}
                 task={selected}
-                data={data}
+                data={detail.data || data}
                 save={save}
                 onClose={closeDrawer}
               />
             ) : (
-              <Empty title="Task not found" />
+              <Empty
+                title={
+                  detail.error ||
+                  (detail.loading ? "Loading task…" : "Task not found")
+                }
+              />
             )}
           </Drawer>
         )}

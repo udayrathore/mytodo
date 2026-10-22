@@ -1,5 +1,5 @@
 "use client";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Plus, ArrowRight, Check, Minus } from "lucide-react";
 import type { Workspace, Task } from "@/lib/workspace";
 import type { Save } from "./task-form";
@@ -9,7 +9,9 @@ export function Planning({
   data,
   save,
   openTask,
+  setScope,
 }: {
+  setScope: (key: string, value: string) => void;
   data: Workspace;
   save: Save;
   openTask: (t: Task) => void;
@@ -23,6 +25,9 @@ export function Planning({
       data.periods[0]?.id ||
       "",
   );
+  useEffect(() => {
+    setScope("period", periodId);
+  }, [periodId, setScope]);
   const [create, setCreate] = useState(false);
   const [busy, setBusy] = useState(false);
   const p = data.periods.find((p) => p.id === periodId);
@@ -84,9 +89,7 @@ export function Planning({
           <div className="plan-banner">
             <div>
               <span className="eyebrow">
-                {p.status === "CLOSED"
-                  ? "Closed plan"
-                  : "An intention for the week"}
+                {p.status === "CLOSED" ? "Closed plan" : "A task for the week"}
               </span>
               <h2>{p.title}</h2>
               <p>
@@ -175,7 +178,7 @@ export function Planning({
                 </div>
               ))}
               {!planned.length && (
-                <Empty title="A little space to plan">
+                <Empty title="No planned tasks">
                   Add something from your backlog.
                 </Empty>
               )}
@@ -187,7 +190,7 @@ export function Planning({
             <section className="panel">
               <div className="section-heading">
                 <h2>
-                  Available intentions{" "}
+                  Available tasks{" "}
                   <span className="count">{backlog.length}</span>
                 </h2>
               </div>
@@ -211,25 +214,20 @@ export function Planning({
                   </button>
                 </div>
               ))}
-              {!backlog.length && <Empty title="Everything has a place" />}
+              {!backlog.length && <Empty title="No available tasks" />}
             </section>
           </div>
         </>
       ) : (
-        <Empty title="Begin with a week">
-          Create a planning period to collect your intentions.
+        <Empty title="No planning periods">
+          Create a planning period to collect your upcoming tasks.
         </Empty>
       )}
       {create && (
         <Drawer title="New planning period" onClose={() => setCreate(false)}>
           <form onSubmit={submit} className="form-stack">
             <Field label="Title">
-              <input
-                name="title"
-                required
-                autoFocus
-                placeholder="A week with a little more space"
-              />
+              <input name="title" required autoFocus placeholder="Week name" />
             </Field>
             <Field label="Starts on">
               <input

@@ -107,6 +107,7 @@ model User {
   categoryRecords            Category[]
   taskRecords                Task[]
   taskSeries                 TaskSeries[]
+  taskComments               TaskComment[]
   taskEventRecords           TaskEvent[]
   tagRecords                 Tag[]
   taskTagRecords             TaskTag[]
@@ -130,6 +131,7 @@ model User {
 }
 
 model Category {
+  imageData String? @map("image_data")
   id          String                @id @default(uuid()) @db.Uuid
   userId      String                @map("user_id") @db.Uuid
   user        User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -161,6 +163,7 @@ model Task {
   recurrenceDate      DateTime?         @map("recurrence_date") @db.Date
   isException         Boolean           @default(false) @map("is_exception")
   scheduleRemoved     Boolean           @default(false) @map("schedule_removed")
+  isMicro             Boolean           @default(false) @map("is_micro")
   color               String            @default("sage") @db.VarChar(20)
   icon                String            @default("none") @db.VarChar(30)
   series              TaskSeries?       @relation(fields: [seriesId], references: [id], onDelete: Restrict)
@@ -180,6 +183,7 @@ model Task {
   version             Int               @default(0)
   category            Category?         @relation(fields: [primaryCategoryId], references: [id], onDelete: Restrict)
   template            TaskTemplate?     @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  comments            TaskComment[]
   events              TaskEvent[]
   tags                TaskTag[]
   entities            TaskEntityLink[]
@@ -199,6 +203,8 @@ model Task {
   @@index([userId, dueAt])
   @@index([userId, primaryCategoryId])
   @@map("tasks")
+  @@index([userId, createdAt, id], map: "tasks_owner_created_cursor_idx")
+  @@index([userId, seriesId, plannedDate, id], map: "tasks_owner_series_date_idx")
 }
 
 model TaskEvent {
@@ -219,6 +225,8 @@ model TaskEvent {
   @@index([userId, occurredAt])
   @@index([taskId, occurredAt])
   @@map("task_events")
+  @@index([userId, occurredAt, id], map: "events_owner_time_cursor_idx")
+  @@index([userId, taskId, occurredAt, id], map: "events_owner_task_time_idx")
 }
 
 model Tag {
@@ -254,6 +262,7 @@ model TaskTag {
 }
 
 model Entity {
+  imageData String? @map("image_data")
   id             String              @id @default(uuid()) @db.Uuid
   userId         String              @map("user_id") @db.Uuid
   user           User                @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -408,6 +417,7 @@ model TaskEffortEntry {
   @@index([userId, occurredOn])
   @@index([taskId])
   @@map("task_effort_entries")
+  @@index([userId, occurredOn, id], map: "effort_owner_date_cursor_idx")
 }
 
 model TaskRelation {
@@ -444,6 +454,7 @@ model JournalEntry {
   @@unique([id, userId])
   @@index([userId, occurredAt])
   @@map("journal_entries")
+  @@index([userId, occurredAt, id], map: "journal_owner_time_cursor_idx")
 }
 
 model JournalCategoryLink {
@@ -560,4 +571,17 @@ model TaskSeries {
   @@unique([id, userId])
   @@index([userId, active])
   @@map("task_series")
+}
+
+model TaskComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  taskId    String   @map("task_id") @db.Uuid
+  body      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  task      Task     @relation(fields: [taskId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@index([userId, taskId, createdAt, id])
+  @@map("task_comments")
 }

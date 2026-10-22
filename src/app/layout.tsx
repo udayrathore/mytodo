@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { IconTooltips } from "@/components/icon-tooltips";
 export const metadata: Metadata = {
-  title: "Still · Personal Intelligence",
-  description: "A private place for intentions, actions, and observations.",
+  title: "Tasks",
+  description: "Task management",
   robots: { index: false, follow: false },
 };
 export default function RootLayout({

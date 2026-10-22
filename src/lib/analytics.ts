@@ -1,6 +1,7 @@
 import { dateKey, descendants } from "./domain";
 import type { Workspace, Task } from "./workspace";
 export function effortTotal(task: Task) {
+  if (task.totalEffortMinutes !== undefined) return task.totalEffortMinutes;
   return task.effort.length
     ? task.effort.reduce((n, e) => n + e.minutes, 0)
     : task.manualActualMinutes || 0;

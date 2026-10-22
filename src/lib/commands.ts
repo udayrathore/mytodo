@@ -132,6 +132,178 @@ export async function executeCommand(userId: string, input: unknown) {
           },
         });
       switch (c.type) {
+        case "collection.settings": {
+          const existing = c.kind === "category"
+            ? await tx.category.findFirst({ where: { id: c.id, userId } })
+            : await tx.entity.findFirst({ where: { id: c.id, userId, type: "PROJECT" } });
+          if (!existing) throw new DomainError("Item not found.");
+          const data = {
+            ...(c.status ? { isActive: c.status === "ACTIVE", archivedAt: c.status === "ARCHIVED" ? existing.archivedAt || new Date() : null } : {}),
+            ...(c.imageData !== undefined ? { imageData: c.imageData } : {}),
+          };
+          return c.kind === "category" ? tx.category.update({ where: { id: c.id }, data }) : tx.entity.update({ where: { id: c.id }, data });
+        }
+        case "task.comment": {
+          await taskFor(tx, userId, c.id);
+          return tx.taskComment.create({ data: { userId, taskId: c.id, body: c.body } });
+        }
+        case "project.save": {
+          const categoryIds = [...new Set(c.categoryIds)];
+          if (
+            (await tx.category.count({
+              where: { id: { in: categoryIds }, userId },
+            })) !== categoryIds.length
+          )
+            throw new DomainError("Category unavailable.");
+          const existing = c.id
+            ? await tx.entity.findFirst({
+                where: { id: c.id, userId, type: "PROJECT" },
+              })
+            : null;
+          if (c.id && !existing) throw new DomainError("Project not found.");
+          const metadata =
+            existing?.metadata &&
+            typeof existing.metadata === "object" &&
+            !Array.isArray(existing.metadata)
+              ? existing.metadata
+              : {};
+          const data = {
+            name: c.name,
+            description: c.description,
+            metadata: { ...metadata, categoryIds },
+          };
+          return existing
+            ? tx.entity.update({ where: { id: existing.id }, data })
+            : tx.entity.create({ data: { userId, type: "PROJECT", ...data } });
+        }
+        case "project.linkTask": {
+          const project = await tx.entity.findFirst({
+            where: {
+              id: c.id,
+              userId,
+              type: "PROJECT",
+              isActive: true,
+              archivedAt: null,
+            },
+          });
+          if (!project) throw new DomainError("Project unavailable.");
+          const task = await taskFor(tx, userId, c.taskId);
+          if (task.archivedAt)
+            throw new DomainError(
+              "Restore this task before changing its project.",
+            );
+          const existing = await tx.taskEntityLink.findFirst({
+            where: { userId, taskId: task.id, entityId: project.id },
+          });
+          if (c.linked && !existing)
+            await tx.taskEntityLink.create({
+              data: {
+                userId,
+                taskId: task.id,
+                entityId: project.id,
+                relationshipType: "CONTRIBUTES_TO",
+              },
+            });
+          if (!c.linked)
+            await tx.taskEntityLink.deleteMany({
+              where: { userId, taskId: task.id, entityId: project.id },
+            });
+          if (!!existing !== c.linked) {
+            await tx.task.update({
+              where: { id: task.id },
+              data: {
+                version: { increment: 1 },
+                ...(task.seriesId ? { isException: true } : {}),
+              },
+            });
+            await event(
+              task.id,
+              "UPDATED",
+              { projectId: project.id, linked: !!existing },
+              { projectId: project.id, linked: c.linked },
+            );
+          }
+          return { id: task.id };
+        }
+        case "task.schedule": {
+          const task = await taskFor(tx, userId, c.id);
+          if (task.version !== c.version)
+            throw new ConflictError("Task changed. Refresh and try again.");
+          if (
+            task.archivedAt ||
+            ["COMPLETED", "CANCELLED"].includes(task.status)
+          )
+            throw new DomainError("Reopen this task before moving it.");
+          await tx.task.update({
+            where: { id: task.id },
+            data: {
+              plannedDate: asDate(c.plannedDate),
+              version: { increment: 1 },
+              ...(task.status === "INBOX" ? { status: "PLANNED" } : {}),
+              ...(task.seriesId ? { isException: true } : {}),
+            },
+          });
+          await event(
+            task.id,
+            "RESCHEDULED",
+            { plannedDate: task.plannedDate },
+            { plannedDate: c.plannedDate },
+          );
+          return { id: task.id };
+        }
+        case "tasks.capture": {
+          const categoryIds = [
+            ...new Set(c.tasks.map((t) => t.primaryCategoryId)),
+          ];
+          if (
+            (await tx.category.count({
+              where: { userId, id: { in: categoryIds }, isActive: true },
+            })) !== categoryIds.length
+          )
+            throw new DomainError("Category unavailable.");
+          if (
+            c.projectId &&
+            !(await tx.entity.findFirst({
+              where: {
+                id: c.projectId,
+                userId,
+                type: "PROJECT",
+                isActive: true,
+                archivedAt: null,
+              },
+            }))
+          )
+            throw new DomainError("Project unavailable.");
+          const created = [];
+          for (const row of c.tasks) {
+            const task = await tx.task.create({
+              data: {
+                userId,
+                title: row.title,
+                primaryCategoryId: row.primaryCategoryId,
+                plannedDate: asDate(row.plannedDate),
+                status: "PLANNED",
+              },
+            });
+            if (c.projectId)
+              await tx.taskEntityLink.create({
+                data: {
+                  userId,
+                  taskId: task.id,
+                  entityId: c.projectId,
+                  relationshipType: "CONTRIBUTES_TO",
+                },
+              });
+            await event(task.id, "CREATED", undefined, {
+              title: task.title,
+              plannedDate: row.plannedDate,
+              status: task.status,
+            });
+            created.push(task.id);
+          }
+          return { id: created[0] };
+        }
+
         case "series.create": {
           const task = await taskFor(tx, userId, c.id);
           if (task.version !== c.version)
@@ -169,6 +341,7 @@ export async function executeCommand(userId: string, input: unknown) {
                 data: {
                   userId,
                   title: c.title!,
+                  isMicro: c.isMicro,
                   color: c.color,
                   icon: c.icon,
                   primaryCategoryId: category.id,
@@ -231,6 +404,7 @@ export async function executeCommand(userId: string, input: unknown) {
           const t = await tx.task.create({
             data: {
               userId,
+              isMicro: c.isMicro,
               color: c.color,
               icon: c.icon,
               title: c.title,
@@ -284,6 +458,7 @@ export async function executeCommand(userId: string, input: unknown) {
                   primaryCategoryId: c.primaryCategoryId,
                   priority: c.priority,
                   estimatedMinutes: c.estimatedMinutes,
+                  isMicro: c.isMicro,
                   color: c.color,
                   icon: c.icon,
                   version: { increment: 1 },
@@ -295,6 +470,7 @@ export async function executeCommand(userId: string, input: unknown) {
                 "UPDATED",
                 {
                   title: member.title,
+                  isMicro: member.isMicro,
                   color: member.color,
                   icon: member.icon,
                   description: member.description,
@@ -309,6 +485,7 @@ export async function executeCommand(userId: string, input: unknown) {
                 },
                 {
                   title: c.title,
+                  isMicro: c.isMicro,
                   color: c.color,
                   icon: c.icon,
                   scope: "ALL",
@@ -333,6 +510,7 @@ export async function executeCommand(userId: string, input: unknown) {
                   primaryCategoryId: c.primaryCategoryId,
                   priority: c.priority,
                   estimatedMinutes: c.estimatedMinutes,
+                  isMicro: c.isMicro,
                   color: c.color,
                   icon: c.icon,
                   tags: [...new Set(c.tagIds)],
@@ -376,6 +554,7 @@ export async function executeCommand(userId: string, input: unknown) {
               data: {
                 ...statusData,
                 title: c.title,
+                isMicro: c.isMicro,
                 color: c.color,
                 icon: c.icon,
                 isException: !!old.seriesId,
@@ -417,6 +596,7 @@ export async function executeCommand(userId: string, input: unknown) {
               },
               {
                 title: c.title,
+                isMicro: c.isMicro,
                 color: c.color,
                 icon: c.icon,
                 isException: !!old.seriesId,
@@ -502,6 +682,9 @@ export async function executeCommand(userId: string, input: unknown) {
             name: c.name,
             parentId: c.parentId,
             sortOrder: c.sortOrder,
+            ...(c.description !== undefined
+              ? { description: c.description }
+              : {}),
             isActive: c.isActive,
           };
           if (c.id) {

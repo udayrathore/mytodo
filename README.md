@@ -180,3 +180,14 @@ Each occurrence is a separate task. Completing, reopening, or archiving one does
 Migration `202610200001_repeating_tasks` adds `task_series` and task appearance/occurrence columns, with ownership checks and a unique series/date constraint. Apply it with `npm run db:migrate` on Neon or `npm run db:local:migrate` for the local preview. Existing tasks and history are retained.
 
 Occurrences materialize on workspace access: 90 days ahead by default and through the selected calendar range, up to two years ahead. An empty end date means the rule continues; refreshes extend the window over time. No background scheduler is required, and the app does not claim to send notifications while closed. Converting an old task preserves that original occurrence and begins generating from today, without fabricating a historical backlog. The repeat blueprint snapshots creation defaults; typed fields, tags and entity links copy to new occurrences, while effort, completion, reminders and planning-period memberships do not.
+
+
+### Scoped loading (draft)
+
+Workspace reads now return at most 100 tasks/journal entries per request with an owner-checked cursor. Home/category/project requests include the selected date range (at most 31 days), unfinished backlog, and activity within that range. The Tasks screen applies search and filters on the server before paging. Task details load separately. Use **Load more** to retrieve further matching records; visible counts describe loaded records.
+
+`/api/history` returns 60 merged task-event, effort, and journal records per page with a timestamp/identity cursor. `/api/reports` computes category activity counts and effort summaries in PostgreSQL, independently of the task pages. Calendar ranges use the user's timezone; date-only effort uses its recorded date. These endpoints require the existing session and do not cache private responses.
+
+Repeat series seed 30 days on creation/schedule change, and browsing generates only the requested window rather than every intervening date. Previously generated records and completed history are preserved. New additive indexes are in `202610210002_scoped_loading_indexes`.
+
+TypeScript checking completed during implementation. Functional, integration, browser, performance tests and the production build remain deferred at the user's request; no capacity benchmark is claimed.
