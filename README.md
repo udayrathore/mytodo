@@ -191,3 +191,9 @@ Workspace reads now return at most 100 tasks/journal entries per request with an
 Repeat series seed 30 days on creation/schedule change, and browsing generates only the requested window rather than every intervening date. Previously generated records and completed history are preserved. New additive indexes are in `202610210002_scoped_loading_indexes`.
 
 TypeScript checking completed during implementation. Functional, integration, browser, performance tests and the production build remain deferred at the user's request; no capacity benchmark is claimed.
+
+### Templates retired
+Templates and custom-field editing are no longer exposed or loaded by the app. New tasks and recurring occurrences do not use templates. Historical template tables and values are retained for data preservation; no destructive migration is required.
+
+### Single-user login code
+Login uses a four-digit code. Generate a bootstrap hash with `npm run auth:password` and set `OWNER_PASSWORD_HASH` privately. The owner email remains the account identifier; it is not entered at login. Change the code under More → Login & recovery using the current code. The database stores the replacement hash; changing it invalidates other sessions. Recovery email is stored as account metadata only; recovery emails require a configured mail provider and are not yet enabled. Never commit the initial code or credential hashes.

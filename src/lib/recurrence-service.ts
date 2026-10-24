@@ -22,14 +22,14 @@ const day = (date: Date) => date.toISOString().slice(0, 10);
 export async function taskBlueprint(tx: Tx, id: string): Promise<Blueprint> {
   const t = await tx.task.findUniqueOrThrow({
     where: { id },
-    include: { tags: true, entities: true, fieldValues: true },
+    include: { tags: true, entities: true, fieldValues: false },
   });
   return JSON.parse(
     JSON.stringify({
       title: t.title,
       description: t.description,
       primaryCategoryId: t.primaryCategoryId,
-      templateId: t.templateId,
+      templateId: null,
       priority: t.priority,
       estimatedMinutes: t.estimatedMinutes,
       isMicro: t.isMicro,
@@ -44,9 +44,7 @@ export async function taskBlueprint(tx: Tx, id: string): Promise<Blueprint> {
         entityId: e.entityId,
         relationshipType: e.relationshipType,
       })),
-      fields: t.fieldValues.map(
-        ({ id, userId, taskId, createdAt, updatedAt, ...f }) => f,
-      ),
+      fields: [],
     }),
   );
 }
@@ -114,7 +112,7 @@ export async function generateSeries(
         title: b.title,
         description: b.description,
         primaryCategoryId: b.primaryCategoryId,
-        templateId: b.templateId,
+
         priority: b.priority,
         estimatedMinutes: b.estimatedMinutes,
         isMicro: b.isMicro ?? false,
@@ -141,19 +139,6 @@ export async function generateSeries(
           taskId: task.id,
           ...e,
         })),
-      });
-    for (const f of b.fields)
-      await tx.taskFieldValue.create({
-        data: {
-          ...f,
-          userId: series.userId,
-          taskId: task.id,
-          dateValue: f.dateValue ? new Date(f.dateValue as string) : null,
-          datetimeValue: f.datetimeValue
-            ? new Date(f.datetimeValue as string)
-            : null,
-          jsonValue: f.jsonValue ?? Prisma.DbNull,
-        } as Prisma.TaskFieldValueUncheckedCreateInput,
       });
     await tx.taskEvent.create({
       data: {

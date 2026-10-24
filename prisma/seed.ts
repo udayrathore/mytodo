@@ -84,48 +84,6 @@ await db.$transaction(
         description: "Design collaborator",
       },
     });
-    const template = await tx.taskTemplate.create({
-      data: {
-        userId,
-        name: "Guitar practice",
-        description: "A small record of what changed.",
-        fields: {
-          create: [
-            {
-              userId,
-              key: "practised",
-              label: "What I practised",
-              fieldType: "LONG_TEXT",
-              sortOrder: 0,
-            },
-            {
-              userId,
-              key: "learned",
-              label: "What I learned",
-              fieldType: "LONG_TEXT",
-              sortOrder: 1,
-            },
-            {
-              userId,
-              key: "techniques",
-              label: "Techniques",
-              fieldType: "MULTI_SELECT",
-              configuration: {
-                options: ["Bends", "Vibrato", "Alternate picking", "Chords"],
-              },
-              sortOrder: 2,
-            },
-            {
-              userId,
-              key: "difficulty",
-              label: "Difficulty (1–10)",
-              fieldType: "NUMBER",
-              sortOrder: 3,
-            },
-          ],
-        },
-      },
-    });
     const current = await tx.planningPeriod.create({
       data: {
         userId,
@@ -263,7 +221,6 @@ await db.$transaction(
           plannedDate: i < 4 || i === 7 ? asDate(date) : null,
           dueAt: i === 1 ? new Date(today + "T12:30:00Z") : null,
           completedAt: completed ? new Date(date + "T05:30:00Z") : null,
-          templateId: i === 2 ? template.id : null,
           createdAt: created,
         },
       });

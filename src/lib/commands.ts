@@ -1,3 +1,4 @@
+import { validateJournalDocument } from "./journal-document";
 import { Prisma } from "@/generated/prisma/client";
 import { database } from "./db";
 import { attachSeries, changeSchedule } from "./recurrence-service";
@@ -5,7 +6,6 @@ import {
   asDate,
   dateKey,
   commandSchema,
-  validateFields,
   descendants,
   DomainError,
   type Command,
@@ -22,55 +22,6 @@ async function taskFor(tx: Tx, userId: string, id: string) {
   const t = await tx.task.findFirst({ where: { id, userId } });
   if (!t) throw new DomainError("Task not found.");
   return t;
-}
-async function saveFields(
-  tx: Tx,
-  userId: string,
-  taskId: string,
-  templateId: string | null,
-  values: Record<string, unknown>,
-) {
-  const defs = templateId
-    ? await tx.taskTemplateField.findMany({ where: { templateId, userId } })
-    : [];
-  const checked = validateFields(defs, values);
-  for (const f of defs) {
-    const v = checked[f.id];
-    const data = {
-      textValue: null as string | null,
-      numberValue: null as number | null,
-      booleanValue: null as boolean | null,
-      dateValue: null as Date | null,
-      datetimeValue: null as Date | null,
-      jsonValue: Prisma.DbNull as Prisma.InputJsonValue | typeof Prisma.DbNull,
-    };
-    if (v != null) {
-      switch (f.fieldType) {
-        case "NUMBER":
-          data.numberValue = v as number;
-          break;
-        case "BOOLEAN":
-          data.booleanValue = v as boolean;
-          break;
-        case "DATE":
-          data.dateValue = asDate(v as string);
-          break;
-        case "DATETIME":
-          data.datetimeValue = asDate(v as string);
-          break;
-        case "MULTI_SELECT":
-          data.jsonValue = v as string[];
-          break;
-        default:
-          data.textValue = v as string;
-      }
-    }
-    await tx.taskFieldValue.upsert({
-      where: { taskId_templateFieldId: { taskId, templateFieldId: f.id } },
-      create: { userId, taskId, templateFieldId: f.id, ...data },
-      update: data,
-    });
-  }
 }
 async function links(
   tx: Tx,
@@ -132,6 +83,15 @@ export async function executeCommand(userId: string, input: unknown) {
           },
         });
       switch (c.type) {
+        case "master.remove": {
+          if (c.kind === "tag") {
+            const tag = await tx.tag.findFirst({ where: { id: c.id, userId } });
+            if (!tag) throw new DomainError("Tag not found.");
+            if (await tx.taskTag.count({ where: { tagId: c.id, userId } })) throw new DomainError("Remove this tag from its tasks before deleting it.");
+            return tx.tag.delete({ where: { id: c.id } });
+          }
+
+        }
         case "collection.settings": {
           const existing = c.kind === "category"
             ? await tx.category.findFirst({ where: { id: c.id, userId } })
@@ -394,13 +354,6 @@ export async function executeCommand(userId: string, input: unknown) {
           return { id: task.id };
         }
         case "task.create": {
-          if (
-            c.templateId &&
-            !(await tx.taskTemplate.findFirst({
-              where: { id: c.templateId, userId, isActive: true },
-            }))
-          )
-            throw new DomainError("Template unavailable.");
           const t = await tx.task.create({
             data: {
               userId,
@@ -410,7 +363,6 @@ export async function executeCommand(userId: string, input: unknown) {
               title: c.title,
               description: c.description,
               primaryCategoryId: c.primaryCategoryId,
-              templateId: c.templateId,
               priority: c.priority,
               plannedDate: asDate(c.plannedDate),
               dueAt: asDate(c.dueAt),
@@ -419,7 +371,6 @@ export async function executeCommand(userId: string, input: unknown) {
             },
           });
           await links(tx, userId, t.id, c);
-          await saveFields(tx, userId, t.id, c.templateId, c.fields);
           await event(t.id, "CREATED", undefined, {
             title: t.title,
             status: t.status,
@@ -632,12 +583,6 @@ export async function executeCommand(userId: string, input: unknown) {
           });
           return { id: entry.id };
         }
-        case "task.fields": {
-          const t = await taskFor(tx, userId, c.id);
-          await saveFields(tx, userId, t.id, t.templateId, c.fields);
-          await event(t.id, "FIELDS_UPDATED", undefined, c.fields);
-          return { id: t.id };
-        }
         case "task.relate": {
           await taskFor(tx, userId, c.id);
           await taskFor(tx, userId, c.targetId);
@@ -808,14 +753,22 @@ export async function executeCommand(userId: string, input: unknown) {
             !(await tx.journalEntry.findFirst({ where: { id: c.id, userId } }))
           )
             throw new DomainError("Journal entry not found.");
+          if (c.document) validateJournalDocument(c.document);
+          if (c.id) {
+            const current = await tx.journalEntry.findFirst({ where: { id: c.id, userId } });
+            if (current?.archivedAt) throw new DomainError("This document has been archived.");
+            if (c.version !== undefined && current?.version !== c.version) throw new ConflictError("Document changed in another window.");
+          }
           const data = {
             title: c.title,
             content: c.content,
+            ...(c.document ? { document: c.document as Prisma.InputJsonObject } : {}),
+            version: { increment: 1 },
             occurredAt: new Date(c.occurredAt),
           };
           const j = c.id
             ? await tx.journalEntry.update({ where: { id: c.id }, data })
-            : await tx.journalEntry.create({ data: { userId, ...data } });
+            : await tx.journalEntry.create({ data: { userId, ...data, version: 0 } });
           await tx.journalCategoryLink.deleteMany({
             where: { journalEntryId: j.id, userId },
           });
@@ -838,7 +791,7 @@ export async function executeCommand(userId: string, input: unknown) {
                 entityId,
               })),
             });
-          return { id: j.id };
+          return { id: j.id, version: j.version };
         }
         case "journal.archive": {
           const j = await tx.journalEntry.findFirst({
@@ -872,46 +825,7 @@ export async function executeCommand(userId: string, input: unknown) {
             data: { status: "CANCELLED", cancelledAt: new Date() },
           });
         }
-        case "template.create": {
-          if (new Set(c.fields.map((f) => f.key)).size !== c.fields.length)
-            throw new DomainError("Field keys must be unique.");
-          if (
-            c.fields.some(
-              (f) =>
-                ["SELECT", "MULTI_SELECT"].includes(f.fieldType) &&
-                f.options.length === 0,
-            )
-          )
-            throw new DomainError("Select fields need options.");
-          const previous = await tx.taskTemplate.findFirst({
-            where: { userId, name: c.name },
-            orderBy: { revision: "desc" },
-          });
-          if (previous)
-            await tx.taskTemplate.updateMany({
-              where: { userId, name: c.name },
-              data: { isActive: false },
-            });
-          return tx.taskTemplate.create({
-            data: {
-              userId,
-              name: c.name,
-              description: c.description,
-              revision: (previous?.revision || 0) + 1,
-              fields: {
-                create: c.fields.map((f, i) => ({
-                  userId,
-                  key: f.key,
-                  label: f.label,
-                  fieldType: f.fieldType,
-                  required: f.required,
-                  sortOrder: i,
-                  configuration: { options: f.options },
-                })),
-              },
-            },
-          });
-        }
+
       }
     },
     { isolationLevel: "Serializable", timeout: 60000 },

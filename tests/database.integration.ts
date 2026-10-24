@@ -119,52 +119,6 @@ test("weekly carry-forward preserves both assignments and removal is historical"
     1,
   );
 });
-test("required fields roll back capture; template revisions leave original values intact", async () => {
-  const template = (await executeCommand(uid, {
-    type: "template.create",
-    name: "Test template",
-    fields: [
-      { key: "count", label: "Count", fieldType: "NUMBER", required: true },
-    ],
-  }))!;
-  const def = await db.taskTemplateField.findFirstOrThrow({
-    where: { templateId: template.id },
-  });
-  await assert.rejects(
-    executeCommand(uid, {
-      type: "task.create",
-      title: "Must roll back",
-      templateId: template.id,
-      fields: {},
-    }),
-    /required/,
-  );
-  assert.equal(
-    await db.task.count({ where: { userId: uid, title: "Must roll back" } }),
-    0,
-  );
-  const task = (await executeCommand(uid, {
-    type: "task.create",
-    title: "Typed value",
-    templateId: template.id,
-    fields: { [def.id]: 0 },
-  }))!;
-  await executeCommand(uid, {
-    type: "template.create",
-    name: "Test template",
-    fields: [{ key: "notes", label: "Notes", fieldType: "LONG_TEXT" }],
-  });
-  assert.equal(
-    (await db.task.findUniqueOrThrow({ where: { id: task.id } })).templateId,
-    template.id,
-  );
-  assert.equal(
-    (
-      await db.taskFieldValue.findFirstOrThrow({ where: { taskId: task.id } })
-    ).numberValue?.toNumber(),
-    0,
-  );
-});
 test("journal is independent and supports owner-checked associations", async () => {
   const journal = (await executeCommand(uid, {
     type: "journal.save",
@@ -401,22 +355,12 @@ test("repeat series preserve occurrence identity and completion while supporting
   );
 });
 
-test("repeat occurrences copy typed fields and links, while manually archived occurrences stay archived", async () => {
+test("repeat occurrences copy links, while manually archived occurrences stay archived", async () => {
   const { addDays, dateKey } = await import("../src/lib/domain");
   const { ensureRecurringTasks } = await import(
     "../src/lib/recurrence-service"
   );
   const today = dateKey(new Date(), "Asia/Kolkata");
-  const template = await executeCommand(uid, {
-    type: "template.create",
-    name: "Repeat template",
-    fields: [
-      { key: "focus", label: "Focus", fieldType: "TEXT", required: true },
-    ],
-  });
-  const field = await db.taskTemplateField.findFirstOrThrow({
-    where: { templateId: template!.id },
-  });
   const tag = await db.tag.create({
     data: { userId: uid, name: "repeat test", slug: "repeat-test" },
   });
@@ -424,8 +368,6 @@ test("repeat occurrences copy typed fields and links, while manually archived oc
     type: "task.create",
     title: "Typed repeat",
     plannedDate: today,
-    templateId: template!.id,
-    fields: { [field.id]: "Breathing" },
     tagIds: [tag.id],
     repeat: { unit: "DAY", interval: 1, endsOn: addDays(today, 2) },
   });
@@ -434,7 +376,7 @@ test("repeat occurrences copy typed fields and links, while manually archived oc
     where: { seriesId: first.seriesId, id: { not: first.id } },
     include: { fieldValues: true, tags: true },
   });
-  assert.equal(generated.fieldValues[0].textValue, "Breathing");
+  assert.equal(generated.fieldValues.length, 0);
   assert.equal(generated.tags[0].tagId, tag.id);
   await executeCommand(uid, {
     type: "task.archive",
@@ -481,57 +423,3 @@ test("repeat occurrences copy typed fields and links, while manually archived oc
   );
 });
 
-test("whole-series metadata edits do not promote an occurrence’s custom values into future defaults", async () => {
-  const { addDays, dateKey } = await import("../src/lib/domain");
-  const today = dateKey(new Date(), "Asia/Kolkata");
-  const template = await executeCommand(uid, {
-    type: "template.create",
-    name: "Repeat default isolation",
-    fields: [
-      { key: "focus", label: "Focus", fieldType: "TEXT", required: true },
-    ],
-  });
-  const field = await db.taskTemplateField.findFirstOrThrow({
-    where: { templateId: template!.id },
-  });
-  const result = await executeCommand(uid, {
-    type: "task.create",
-    title: "Default isolation",
-    plannedDate: today,
-    templateId: template!.id,
-    fields: { [field.id]: "Original" },
-    repeat: { unit: "DAY", interval: 1, endsOn: today },
-  });
-  const t = await db.task.findUniqueOrThrow({ where: { id: result!.id } });
-  await executeCommand(uid, {
-    type: "task.fields",
-    id: t.id,
-    fields: { [field.id]: "One occurrence only" },
-  });
-  let series = await db.taskSeries.findUniqueOrThrow({
-    where: { id: t.seriesId! },
-  });
-  await executeCommand(uid, {
-    type: "task.update",
-    id: t.id,
-    version: t.version,
-    scope: "ALL",
-    seriesVersion: series.version,
-    title: "Shared new title",
-    status: "PLANNED",
-  });
-  series = await db.taskSeries.findUniqueOrThrow({ where: { id: series.id } });
-  await executeCommand(uid, {
-    type: "series.schedule",
-    id: series.id,
-    version: series.version,
-    repeat: { unit: "DAY", interval: 1, endsOn: addDays(today, 1) },
-    active: true,
-  });
-  const future = await db.task.findFirstOrThrow({
-    where: { seriesId: series.id, id: { not: t.id } },
-    include: { fieldValues: true },
-  });
-  assert.equal(future.title, "Shared new title");
-  assert.equal(future.fieldValues[0].textValue, "Original");
-});

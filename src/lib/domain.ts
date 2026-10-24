@@ -63,6 +63,7 @@ const taskFields = {
   relationshipType: z.string().trim().min(1).max(80).default("CONTRIBUTES_TO"),
 };
 export const commandSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("master.remove"), id: z.uuid(), kind: z.literal("tag") }),
   z.object({ type: z.literal("collection.settings"), id: z.uuid(), kind: z.enum(["category", "project"]), status: z.enum(["ACTIVE", "CLOSED", "ARCHIVED"]).optional(), imageData: z.string().max(65000).regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/).nullable().optional() }),
   z.object({ type: z.literal("task.comment"), id: z.uuid(), body: z.string().trim().min(1).max(5000) }),
   z.object({
@@ -123,8 +124,6 @@ export const commandSchema = z.discriminatedUnion("type", [
     type: z.literal("task.create"),
     repeat: repeatRule.nullable().default(null),
     ...taskFields,
-    templateId: nullableId,
-    fields: fieldInput.default({}),
   }),
   z.object({
     type: z.literal("task.update"),
@@ -154,7 +153,6 @@ export const commandSchema = z.discriminatedUnion("type", [
     occurredOn: dateOnly,
     note: text.default(""),
   }),
-  z.object({ type: z.literal("task.fields"), id, fields: fieldInput }),
   z.object({
     type: z.literal("task.relate"),
     id,
@@ -210,7 +208,9 @@ export const commandSchema = z.discriminatedUnion("type", [
     type: z.literal("journal.save"),
     id: id.optional(),
     title: z.string().trim().max(240).default(""),
-    content: z.string().trim().min(1).max(50000),
+    content: z.string().max(50000),
+    document: z.record(z.string(), z.unknown()).optional(),
+    version: z.number().int().min(0).optional(),
     occurredAt: z.iso.datetime({ offset: true }),
     categoryIds: ids,
     entityIds: ids,
@@ -222,29 +222,7 @@ export const commandSchema = z.discriminatedUnion("type", [
     scheduledFor: z.iso.datetime({ offset: true }),
   }),
   z.object({ type: z.literal("reminder.dismiss"), id }),
-  z.object({
-    type: z.literal("template.create"),
-    name: title,
-    description: text.default(""),
-    fields: z
-      .array(
-        z.object({
-          key: z
-            .string()
-            .regex(/^[a-z][a-z0-9_]*$/)
-            .max(80),
-          label: title,
-          fieldType: z.enum(fieldTypes),
-          required: z.boolean().default(false),
-          options: z
-            .array(z.string().trim().min(1).max(240))
-            .max(50)
-            .default([]),
-        }),
-      )
-      .min(1)
-      .max(30),
-  }),
+
 ]);
 export type Command = z.infer<typeof commandSchema>;
 export function dateKey(

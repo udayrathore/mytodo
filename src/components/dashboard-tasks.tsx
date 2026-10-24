@@ -1,23 +1,30 @@
 "use client";
 import { CollectionAvatar } from "./collection-settings";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { addDays, dateKey } from "@/lib/domain";
-import { Check, Repeat2, PanelLeft } from "lucide-react";
+import { Check, Repeat2, PanelLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Task, Workspace } from "@/lib/workspace";
 import type { Save } from "./task-form";
 import { TaskIcon } from "./task-options";
 
-export function DashboardTasks({ mode, data, save, openTask, scope, onScope, search, onSearch }: {
+export function DashboardTasks({ mode, data, save, openTask, scope, onScope, search, onSearch, onManageRange }: {
+  onManageRange: (from: string, through: string) => void;
   mode: "execute" | "manage"; data: Workspace; save: Save; openTask: (task: Task) => void;
   scope: { category: string; entity: string; tag: string };
   onScope: (kind: string, id: string) => void; search: string; onSearch: (value: string) => void;
 }) {
   const [sidebar, setSidebar] = useState(true);
   const [start, setStart] = useState(data.today);
+  const [laneCount, setLaneCount] = useState(3);
+  useEffect(() => {
+    if (mode === "manage") onManageRange(start, addDays(start, laneCount - 1));
+  }, [mode, start, laneCount, onManageRange]);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
-  const tasks = data.tasks.filter(t => !t.archivedAt && !["COMPLETED", "CANCELLED"].includes(t.status));
+  const todayOnly = mode === "execute" && !scope.category && !scope.entity && !scope.tag;
+  const tasks = data.tasks.filter(t => !t.archivedAt && !["COMPLETED", "CANCELLED"].includes(t.status) && (!todayOnly || t.plannedDate?.slice(0,10) === data.today));
+  const [sections, setSections] = useState<Record<string, boolean>>({});
   const dateLabel = (date: string) => date === "undated" ? "Unscheduled" :
     (date === data.today ? "Today · " : "") + new Date(date + "T00:00:00Z").toLocaleDateString("en", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
   async function reschedule(task: Task, plannedDate: string) {
@@ -75,7 +82,7 @@ export function DashboardTasks({ mode, data, save, openTask, scope, onScope, sea
     </article>;
   }
   const dates = [...new Set(tasks.map(t => t.plannedDate?.slice(0,10) || "undated"))].sort();
-  const laneDates = [...new Set([...dates, ...Array.from({ length: 5 }, (_, i) => addDays(start, i))])].sort();
+  const laneDates = Array.from({ length: laneCount }, (_, i) => addDays(start, i));
   function counts(kind: string, id: string) {
     const count = data.sidebarCounts?.find(c => c.kind === kind && c.id === id);
     return <span className="sidebar-counts" aria-label={`${count?.pending ?? 0} pending, ${count?.upcoming ?? 0} upcoming`} data-tooltip="Pending: today, overdue or unscheduled. Upcoming: future dates. Each repeat occurrence counts separately."><span>{data.sidebarCounts ? count?.pending ?? 0 : "—"}</span><span>{data.sidebarCounts ? count?.upcoming ?? 0 : "—"}</span></span>;
@@ -83,26 +90,43 @@ export function DashboardTasks({ mode, data, save, openTask, scope, onScope, sea
   function scopeButton(kind: "category" | "entity" | "tag", id: string, name: string) {
     return <button key={id} className={scope[kind] === id ? "active" : ""} onClick={() => onScope(kind, id)}><span className="sidebar-item-name">{kind !== "tag" && <CollectionAvatar item={(kind === "category" ? data.categories : data.entities).find(i => i.id === id)!} project={kind === "entity"} />}{name}</span>{counts(kind, id)}</button>;
   }
+  function section(title: string, kind: "category" | "entity" | "tag", items: { id: string; name: string }[]) {
+    const hasUpcoming = (id: string) => (data.sidebarCounts?.find(c => c.kind === kind && c.id === id)?.upcoming || 0) > 0;
+    const upcoming = items.filter(i => hasUpcoming(i.id));
+    const quiet = items.filter(i => !hasUpcoming(i.id));
+    const expanded = sections[title] ?? (upcoming.length > 0 || items.some(i => scope[kind] === i.id));
+    return <details open={expanded}>
+      <summary onClick={e => { e.preventDefault(); setSections(old => ({ ...old, [title]: !expanded })); }}>{title}</summary>
+      {upcoming.map(i => scopeButton(kind, i.id, i.name))}
+      {quiet.length > 0 && (upcoming.length ? <details><summary>No upcoming tasks ({quiet.length})</summary>{quiet.map(i => scopeButton(kind, i.id, i.name))}</details> : quiet.map(i => scopeButton(kind, i.id, i.name)))}
+    </details>;
+  }
   return <section aria-label={mode === "execute" ? "Execute tasks" : "Manage tasks"}>
     <div className="dashboard-filters">
       <button className="icon-button" aria-label={sidebar ? "Collapse sidebar" : "Expand sidebar"} aria-expanded={sidebar} onClick={() => setSidebar(!sidebar)}><PanelLeft size={19} /></button>
       <input aria-label="Search tasks" placeholder="Filter tasks…" value={search} onChange={e => onSearch(e.target.value)} />
-      {mode === "manage" && <label className="tracker-jump">Add date lanes <input type="date" aria-label="Add date lanes starting from" value={start} onChange={e => e.target.value && setStart(e.target.value)} /></label>}
+      {mode === "manage" && <div className="lane-navigation">
+        <label>Lanes <select aria-label="Number of lanes" value={laneCount} onChange={e => setLaneCount(Number(e.target.value))}><option value={3}>3</option><option value={5}>5</option></select></label>
+        <button className="icon-button" aria-label="Previous day" onClick={() => setStart(addDays(start, -1))}><ChevronLeft size={18} /></button>
+        <span>{dateLabel(start)} — {dateLabel(laneDates[laneCount - 1])}</span>
+        <button className="icon-button" aria-label="Next day" disabled={addDays(start, laneCount) > addDays(data.today, 730)} onClick={() => setStart(addDays(start, 1))}><ChevronRight size={18} /></button>
+        <button className="button" onClick={() => setStart(data.today)}>Today</button>
+      </div>}
     </div>
     <div className={"task-browser " + (sidebar ? "with-sidebar" : "")}>
       {sidebar && <aside className="task-sidebar" aria-label="Task collections">
         <div className="sidebar-count-heading"><span>Pending</span><span>Upcoming</span></div>
-        <button className={!scope.category && !scope.entity && !scope.tag ? "active" : ""} onClick={() => onScope("all", "")}><span>All tasks</span>{counts("all", "")}</button>
-        <details open><summary>Projects</summary>{data.entities.filter(e => e.type === "PROJECT" && e.isActive && !e.archivedAt).map(e => scopeButton("entity", e.id, e.name))}</details>
-        <details open><summary>Categories</summary>{data.categories.filter(c => c.isActive && !c.archivedAt).map(c => scopeButton("category", c.id, (c.parentId ? "↳ " : "") + c.name))}</details>
-        <details open><summary>Entities</summary>{data.entities.filter(e => e.type !== "PROJECT" && e.isActive && !e.archivedAt).map(e => scopeButton("entity", e.id, e.name))}</details>
-        <details><summary>Tags</summary>{data.tags.map(t => scopeButton("tag", t.id, t.name))}</details>
+        <button className={!scope.category && !scope.entity && !scope.tag ? "active" : ""} onClick={() => onScope("all", "")}><span>Today</span></button>
+        {section("Projects", "entity", data.entities.filter(e => e.type === "PROJECT" && e.isActive && !e.archivedAt))}
+        {section("Categories", "category", data.categories.filter(c => c.isActive && !c.archivedAt).map(c => ({...c, name: (c.parentId ? "↳ " : "") + c.name})))}
+        {section("Entities", "entity", data.entities.filter(e => e.type !== "PROJECT" && e.isActive && !e.archivedAt))}
+        {section("Tags", "tag", data.tags)}
       </aside>}
       <div className="task-browser-content">
         {mode === "execute" ? <div className="execute-list">
           {dates.map(date => <section key={date}><h2>{dateLabel(date)}</h2>{tasks.filter(t => (t.plannedDate?.slice(0,10) || "undated") === date).map(card)}</section>)}
-          {!tasks.length && <p className="empty">No pending tasks.</p>}
-        </div> : <div className="kanban-board">{laneDates.map(date => {
+          {!tasks.length && <p className="empty">{todayOnly ? "No pending tasks for today." : "No pending tasks."}</p>}
+        </div> : <div className="kanban-board consecutive-lanes" style={{ gridTemplateColumns: `repeat(${laneCount}, minmax(180px, 1fr))` }}>{laneDates.map(date => {
           const items = tasks.filter(t => (t.plannedDate?.slice(0,10) || "undated") === date);
           return <section key={date} className={`kanban-lane ${over === date ? "drag-over" : ""}`}
             onDragOver={e => { if (dragging && !busy && date !== "undated") { e.preventDefault(); setOver(date); } }}

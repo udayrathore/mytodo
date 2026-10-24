@@ -98,6 +98,8 @@ enum DeliveryStatus {
 }
 
 model User {
+  loginCodeHash String? @map("login_code_hash")
+  recoveryEmail String? @map("recovery_email")
   id                         String                @id @default(uuid()) @db.Uuid
   email                      String                @unique
   name                       String
@@ -438,6 +440,8 @@ model TaskRelation {
 }
 
 model JournalEntry {
+  document Json?
+  version Int @default(0)
   id         String                @id @default(uuid()) @db.Uuid
   userId     String                @map("user_id") @db.Uuid
   user       User                  @relation(fields: [userId], references: [id], onDelete: Restrict)

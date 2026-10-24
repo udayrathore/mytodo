@@ -8,18 +8,18 @@ export async function POST(request: Request) {
     if (raw.length > 4000) throw new Error("Invalid credentials.");
     const input = z
       .object({
-        email: z.email().max(254),
-        password: z.string().min(1).max(1024),
+        
+        password: z.string().regex(/^\d{4}$/),
       })
       .parse(JSON.parse(raw));
-    await login(input.email, input.password);
+    await login(process.env.OWNER_EMAIL || "", input.password);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json(
       {
         error:
           e instanceof z.ZodError
-            ? "Enter a valid email and password."
+            ? "Enter your four-digit code."
             : e instanceof AuthError
               ? e.message
               : "Sign-in failed. Check your connection and try again.",

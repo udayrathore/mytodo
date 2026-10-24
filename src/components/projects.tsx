@@ -1,5 +1,5 @@
 "use client";
-import { CollectionSettings } from "./collection-settings";
+import { CollectionSettings, CollectionAvatar } from "./collection-settings";
 import { useEffect, useState, type FormEvent } from "react";
 import type { Workspace, Task } from "@/lib/workspace";
 import type { Save } from "./task-form";
@@ -83,7 +83,7 @@ export function Projects({
       <div className="collection-list">
         {projects.map(item => <section className="collection-row" key={item.id}>
           <div className="section-toolbar"><button className="text-button" onClick={() => setSelected(item.id)}>{item.name}</button><button className="button" onClick={() => setEditing(item.id)}>Edit</button></div>
-          <CollectionSettings item={item} kind="project" save={save} />
+          <div className="section-toolbar"><CollectionAvatar item={item} project /><span className="muted">{item.archivedAt ? "Archived" : item.isActive ? "Active" : "Closed"}</span></div>
         </section>)}
       </div>
       {project ? (
@@ -178,6 +178,7 @@ export function Projects({
           title={edit ? "Edit project" : "New project"}
           onClose={() => setEditing(null)}
         >
+          {edit && <CollectionSettings key={edit.id} item={edit} kind="project" save={save} />}
           <form className="form-stack" onSubmit={submit}>
             <Field label="Name">
               <input

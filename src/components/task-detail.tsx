@@ -1,7 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
 import type { Workspace, Task } from "@/lib/workspace";
-import { TaskForm, CustomFields, type Save } from "./task-form";
+import { TaskForm, type Save } from "./task-form";
 import {
   Field,
   human,
@@ -28,23 +28,6 @@ export function TaskDetail({
 }) {
   const [tab, setTab] = useState("Details");
   const [busy, setBusy] = useState(false);
-  const template = data.templates.find((t) => t.id === task.templateId);
-  const [values, setValues] = useState<Record<string, unknown>>(() =>
-    Object.fromEntries(
-      task.fieldValues.map((v) => [
-        v.templateFieldId,
-        v.textValue ??
-          (v.numberValue !== null ? Number(v.numberValue) : null) ??
-          v.booleanValue ??
-          v.dateValue?.slice(0, 10) ??
-          (v.datetimeValue
-            ? localInput(v.datetimeValue, data.user.timezone)
-            : null) ??
-          v.jsonValue ??
-          null,
-      ]),
-    ),
-  );
   async function submit(e: FormEvent<HTMLFormElement>, type: string) {
     e.preventDefault();
     setBusy(true);
@@ -92,7 +75,7 @@ export function TaskDetail({
         </p>
       </div>
       <div className="tabs">
-        {["Details", "Activity", "Custom fields"].map((t) => (
+        {["Details", "Activity"].map((t) => (
           <button
             key={t}
             className={tab === t ? "active" : ""}
@@ -242,43 +225,6 @@ export function TaskDetail({
           </section>
         </>
       )}
-      {tab === "Custom fields" &&
-        (template ? (
-          <div className="form-stack">
-            <p className="muted">
-              {template.name} · revision {template.revision}. Historical
-              definitions are preserved.
-            </p>
-            <CustomFields
-              fields={template.fields}
-              values={values}
-              setValues={setValues}
-            />
-            <button
-              className="button primary"
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                const fields = { ...values };
-                for (const f of template.fields)
-                  if (f.fieldType === "DATETIME" && fields[f.id])
-                    fields[f.id] = inputToIso(
-                      String(fields[f.id]),
-                      data.user.timezone,
-                    );
-                await save({ type: "task.fields", id: task.id, fields });
-                setBusy(false);
-              }}
-            >
-              Save custom fields
-            </button>
-          </div>
-        ) : (
-          <p className="empty">
-            This task has no template. Choose a template when capturing a new
-            task.
-          </p>
-        ))}
     </>
   );
 }

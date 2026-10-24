@@ -14,7 +14,6 @@ export function Login({ configured }: { configured: boolean }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: f.get("email"),
           password: f.get("password"),
         }),
       });
@@ -34,23 +33,17 @@ export function Login({ configured }: { configured: boolean }) {
           {configured ? (
             <form onSubmit={submit} className="form-stack">
               <label className="field">
-                <span>Email</span>
-                <input
-                  autoComplete="username"
-                  type="email"
-                  name="email"
-                  required
-                  autoFocus
-                />
-              </label>
-              <label className="field">
-                <span>Password</span>
+                <span>4-digit login code</span>
                 <input
                   autoComplete="current-password"
                   type="password"
                   name="password"
                   required
-                  maxLength={1024}
+                  autoFocus
+                  inputMode="numeric"
+                  pattern="[0-9]{4}"
+                  minLength={4}
+                  maxLength={4}
                 />
               </label>
               {error && (

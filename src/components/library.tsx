@@ -11,30 +11,25 @@ import {
   Trash2,
 } from "lucide-react";
 import type { Workspace } from "@/lib/workspace";
-import { fieldTypes } from "@/lib/domain";
+
 import type { Save } from "./task-form";
 import { Drawer, Field, human, Empty } from "./ui";
 export function Library({
   data,
   save,
   categoriesOnly = false,
+  initialTab = "Categories",
+  singleTab = false,
 }: {
   data: Workspace;
   save: Save;
   categoriesOnly?: boolean;
+  initialTab?: string;
+  singleTab?: boolean;
 }) {
-  const [tab, setTab] = useState("Categories");
+  const [tab, setTab] = useState(initialTab);
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [fields, setFields] = useState([
-    {
-      key: "notes",
-      label: "Notes",
-      fieldType: "LONG_TEXT",
-      required: false,
-      options: "",
-    },
-  ]);
   const category = data.categories.find((c) => c.id === editing),
     tag = data.tags.find((c) => c.id === editing),
     entity = data.entities.find((c) => c.id === editing);
@@ -54,7 +49,7 @@ export function Library({
         parentId: f.get("parentId") || null,
         sortOrder: Number(f.get("sortOrder")),
         description: f.get("description"),
-        isActive: f.get("isActive") === "on",
+        isActive: category ? category.isActive : f.get("isActive") === "on",
       };
     else if (tab === "Tags")
       c = { type: "tag.save", ...base, description: f.get("description") };
@@ -67,19 +62,7 @@ export function Library({
         parentEntityId: f.get("parentEntityId") || null,
         isActive: f.get("isActive") === "on",
       };
-    else
-      c = {
-        type: "template.create",
-        name: f.get("name"),
-        description: f.get("description"),
-        fields: fields.map((x) => ({
-          ...x,
-          options: x.options
-            .split(",")
-            .map((o) => o.trim())
-            .filter(Boolean),
-        })),
-      };
+    else return;
     if (await save(c)) setEditing(null);
     setBusy(false);
   }
@@ -92,14 +75,14 @@ export function Library({
         ? data.tags
         : tab === "Entities"
           ? data.entities
-          : data.templates;
+          : [];
   return (
     <>
       <div className="section-toolbar">
         <div className="tabs compact">
-          {(categoriesOnly
+          {(singleTab ? [initialTab] : categoriesOnly
             ? ["Categories"]
-            : ["Categories", "Tags", "Entities", "Templates"]
+            : ["Categories", "Tags", "Entities"]
           ).map((t) => (
             <button
               key={t}
@@ -114,15 +97,7 @@ export function Library({
           className="button primary"
           onClick={() => {
             setEditing("new");
-            setFields([
-              {
-                key: "notes",
-                label: "Notes",
-                fieldType: "LONG_TEXT",
-                required: false,
-                options: "",
-              },
-            ]);
+
           }}
         >
           <Plus size={16} /> New{" "}
@@ -145,7 +120,7 @@ export function Library({
               <CollectionAvatar item={item} />
               <span><strong>{item.name}</strong><small>{item.parentId ? data.categories.find(c => c.id === item.parentId)?.name : "Primary category"}{" · Priority "}{item.sortOrder}</small>{item.description && <span className="category-list-goal">{item.description}</span>}</span>
             </button>
-            <CollectionSettings compact item={item} kind="category" save={save} />
+            <span className="muted">{item.archivedAt ? "Archived" : item.isActive ? "Active" : "Closed"}</span>
             <button className="text-button" onClick={() => setEditing(item.id)}>Edit</button>
           </div>
         ))}
@@ -156,18 +131,6 @@ export function Library({
             className="library-card"
             key={item.id}
             onClick={() => {
-              if (tab === "Templates") {
-                const t = data.templates.find((t) => t.id === item.id)!;
-                setFields(
-                  t.fields.map((f) => ({
-                    key: f.key,
-                    label: f.label,
-                    fieldType: f.fieldType,
-                    required: f.required,
-                    options: f.configuration?.options?.join(", ") || "",
-                  })),
-                );
-              }
               setEditing(item.id);
             }}
           >
@@ -190,8 +153,6 @@ export function Library({
                     "Primary category"
                   : "type" in item
                     ? human(String(item.type))
-                    : "revision" in item
-                      ? `Revision ${String(item.revision)} · ${data.templates.find((t) => t.id === item.id)?.fields.length || 0} fields`
                       : item.description || "Tag"}
               </p>
               {"parentId" in item && (
@@ -204,16 +165,23 @@ export function Library({
             </div>
             <ArrowUpRight size={16} />
           </button>
-          {tab === "Categories" && "sortOrder" in item && <CollectionSettings item={item} kind="category" save={save} />}
+
           </div>
         ))}
       </div>}
       {!items.length && <Empty title={`Add your first ${tab.toLowerCase()}`} />}
       {editing && (
         <Drawer
-          title={`${editing === "new" ? "New" : tab === "Templates" ? "New revision of" : "Edit"} ${tab.toLowerCase()}`}
+          title={`${editing === "new" ? "New" : "Edit"} ${tab.toLowerCase()}`}
           onClose={() => setEditing(null)}
         >
+          {tab === "Categories" && category && <CollectionSettings key={category.id} item={category} kind="category" save={save} />}
+          {singleTab && editing !== "new" && ["Tags"].includes(tab) && <button className="text-button danger" disabled={busy} onClick={async () => {
+            if (tab === "Tags" && !window.confirm("Delete this tag?")) return;
+            setBusy(true);
+            try { if (await save({ type: "master.remove", kind: "tag", id: editing })) setEditing(null); }
+            finally { setBusy(false); }
+          }}>{"Delete tag"}</button>}
           <form className="form-stack" onSubmit={submit}>
             <Field label="Name">
               <input
@@ -225,7 +193,6 @@ export function Library({
                   category?.name ||
                   tag?.name ||
                   entity?.name ||
-                  data.templates.find((t) => t.id === editing)?.name ||
                   ""
                 }
               />
@@ -280,7 +247,6 @@ export function Library({
                   defaultValue={
                     tag?.description ||
                     entity?.description ||
-                    data.templates.find((t) => t.id === editing)?.description ||
                     ""
                   }
                 />
@@ -323,7 +289,7 @@ export function Library({
                 </Field>
               </>
             )}
-            {["Categories", "Entities"].includes(tab) && (
+            {(tab === "Entities" || (tab === "Categories" && !category)) && (
               <label className="checkbox-label">
                 <input
                   type="checkbox"
@@ -335,136 +301,10 @@ export function Library({
                 Active
               </label>
             )}
-            {tab === "Templates" && (
-              <>
-                <p className="muted">
-                  Saving an existing name creates a new revision. Existing tasks
-                  retain their original fields.
-                </p>
-                {fields.map((f, i) => (
-                  <section className="template-field" key={i}>
-                    <div className="section-heading">
-                      <h3>Field {i + 1}</h3>
-                      <button
-                        type="button"
-                        className="icon-button"
-                        aria-label={`Remove field ${i + 1}`}
-                        disabled={fields.length === 1}
-                        onClick={() =>
-                          setFields(fields.filter((_, n) => n !== i))
-                        }
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                    <div className="form-grid">
-                      <Field label="Label">
-                        <input
-                          required
-                          value={f.label}
-                          onChange={(e) =>
-                            setFields(
-                              fields.map((x, n) =>
-                                n === i ? { ...x, label: e.target.value } : x,
-                              ),
-                            )
-                          }
-                        />
-                      </Field>
-                      <Field label="Key">
-                        <input
-                          required
-                          pattern="[a-z][a-z0-9_]*"
-                          value={f.key}
-                          onChange={(e) =>
-                            setFields(
-                              fields.map((x, n) =>
-                                n === i ? { ...x, key: e.target.value } : x,
-                              ),
-                            )
-                          }
-                        />
-                      </Field>
-                      <Field label="Type">
-                        <select
-                          value={f.fieldType}
-                          onChange={(e) =>
-                            setFields(
-                              fields.map((x, n) =>
-                                n === i
-                                  ? { ...x, fieldType: e.target.value }
-                                  : x,
-                              ),
-                            )
-                          }
-                        >
-                          {fieldTypes.map((t) => (
-                            <option key={t} value={t}>
-                              {human(t)}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      <label className="checkbox-label">
-                        <input
-                          type="checkbox"
-                          checked={f.required}
-                          onChange={(e) =>
-                            setFields(
-                              fields.map((x, n) =>
-                                n === i
-                                  ? { ...x, required: e.target.checked }
-                                  : x,
-                              ),
-                            )
-                          }
-                        />{" "}
-                        Required
-                      </label>
-                    </div>
-                    {["SELECT", "MULTI_SELECT"].includes(f.fieldType) && (
-                      <Field label="Options · comma separated">
-                        <input
-                          required
-                          value={f.options}
-                          onChange={(e) =>
-                            setFields(
-                              fields.map((x, n) =>
-                                n === i ? { ...x, options: e.target.value } : x,
-                              ),
-                            )
-                          }
-                        />
-                      </Field>
-                    )}
-                  </section>
-                ))}
-                <button
-                  type="button"
-                  className="button"
-                  onClick={() =>
-                    setFields([
-                      ...fields,
-                      {
-                        key: `field_${fields.length + 1}`,
-                        label: "",
-                        fieldType: "TEXT",
-                        required: false,
-                        options: "",
-                      },
-                    ])
-                  }
-                >
-                  + Add field
-                </button>
-              </>
-            )}
             <button disabled={busy} className="button primary">
               {busy
                 ? "Saving…"
-                : tab === "Templates"
-                  ? "Save template revision"
-                  : "Save changes"}
+                : "Save changes"}
             </button>
           </form>
         </Drawer>

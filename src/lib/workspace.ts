@@ -120,7 +120,7 @@ export async function getWorkspace(
     )
       filters.push({ id: "00000000-0000-0000-0000-000000000000" });
   }
-  if (q.view === "today" && q.dashboard !== "manage" && !q.category && !q.entity && !q.tag) {
+  if (q.view === "today" && q.dashboard === "plan" && !q.category && !q.entity && !q.tag) {
     const next = await db.$queryRaw<{ id: string }[]>(
       Prisma.sql`SELECT DISTINCT ON (series_id) id FROM tasks WHERE user_id=${userId}::uuid AND series_id IS NOT NULL AND archived_at IS NULL AND status NOT IN ('COMPLETED','CANCELLED') ORDER BY series_id,planned_date ASC NULLS LAST,id`,
     );
@@ -134,6 +134,10 @@ export async function getWorkspace(
   }
   if (q.view === "today" && q.dashboard !== "plan")
     filters.push({ status: { notIn: ["COMPLETED", "CANCELLED"] } });
+  if (q.view === "today" && q.dashboard === "execute" && !q.category && !q.entity && !q.tag)
+    filters.push({ plannedDate: new Date(today) });
+  if (q.view === "today" && q.dashboard === "manage")
+    filters.push({ plannedDate: { gte: new Date(from), lte: new Date(through) } });
   const pageSize = q.view === "task" ? 1 : 100;
   // In-app delivery is access-driven, not a background promise. Claim and log atomically.
   await db.$transaction(async (tx) => {
@@ -205,7 +209,7 @@ export async function getWorkspace(
                 take: 100,
                 orderBy: { occurredOn: "desc" },
               },
-        fieldValues: true,
+        fieldValues: false,
         relationsFrom: {
           include: {
             target: {
@@ -222,11 +226,7 @@ export async function getWorkspace(
       where: { userId },
       orderBy: { startsOn: "desc" },
     }),
-    db.taskTemplate.findMany({
-      where: { userId },
-      include: { fields: { orderBy: { sortOrder: "asc" } } },
-      orderBy: { name: "asc" },
-    }),
+    Promise.resolve([]),
     db.journalEntry.findMany({
       where: {
         userId,
@@ -329,6 +329,7 @@ export async function getWorkspace(
       today: dateKey(new Date(), user.timezone),
       tasks: tasks.slice(0, pageSize).map((t) => ({
         ...t,
+        fieldValues: [],
         totalEffortMinutes:
           totals.find((e) => e.taskId === t.id)?._sum.minutes ??
           t.manualActualMinutes ??
@@ -471,6 +472,8 @@ export type Task = {
   }[];
 };
 export type Journal = {
+  document?: Record<string, unknown> | null;
+  version?: number;
   id: string;
   title: string | null;
   content: string;

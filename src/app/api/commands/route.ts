@@ -14,7 +14,7 @@ export async function POST(request: Request) {
         { status: 413 },
       );
     const result = await executeCommand(user.id, JSON.parse(raw));
-    return NextResponse.json({ ok: true, id: result?.id });
+    return NextResponse.json({ ok: true, id: result?.id, ...((result && "version" in result) ? { version: result.version } : {}) });
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: e.message }, { status: 401 });

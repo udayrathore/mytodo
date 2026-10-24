@@ -1,4 +1,6 @@
 "use client";
+import { AccountSettings } from "./account-settings";
+import { Master } from "./master";
 import { DashboardTasks } from "./dashboard-tasks";
 import {
   useEffect,
@@ -48,14 +50,15 @@ import { CategoryDistribution } from "./category-distribution";
 import { Insights, Timeline } from "./insights";
 const nav = [
   { id: "today", name: "My day", icon: Sun },
-  { id: "week", name: "Weekly plan", icon: CalendarDays },
+
   { id: "tasks", name: "Tasks", icon: Inbox },
   { id: "journal", name: "Journal", icon: BookOpen },
   { id: "timeline", name: "Timeline", icon: History },
   { id: "projects", name: "Projects", icon: LibraryBig },
   { id: "categories", name: "Categories", icon: LibraryBig },
   { id: "distribution", name: "Category balance", icon: ChartNoAxesCombined },
-  { id: "insights", name: "Insights", icon: ChartNoAxesCombined },
+  { id: "master", name: "Master", icon: LibraryBig },
+  { id: "account", name: "Login & recovery", icon: LibraryBig },
 ];
 const headings: Record<string, string> = {
   today: "My day",
@@ -69,6 +72,8 @@ const headings: Record<string, string> = {
   categories: "Categories",
   distribution: "Category balance",
   library: "Library",
+  master: "Master",
+  account: "Login & recovery",
 };
 export function Workspace({ initial }: { initial: Data }) {
   const [data, setData] = useState(initial);
@@ -94,7 +99,7 @@ export function Workspace({ initial }: { initial: Data }) {
   const [loading, setLoading] = useState(false);
   query.current = {
     ...query.current,
-    view,
+    view: ["master", "account"].includes(view) ? "library" : view,
     dashboard,
     ...(category ? { category } : { category: "" }),
     search:
@@ -164,6 +169,12 @@ export function Workspace({ initial }: { initial: Data }) {
     }, 150);
     return () => clearTimeout(timer);
   }, [view, dashboard, category, search, status, archive, tag, entity, priority, refresh]);
+  const setManageRange = useCallback((from: string, through: string) => {
+    query.current.from = from;
+    query.current.through = through;
+    delete query.current.cursor;
+    void refresh().catch(e => setNotice({ text: e.message, error: true }));
+  }, [refresh]);
   const setScope = useCallback(
     (key: string, value: string) => {
       query.current[key] = value;
@@ -256,6 +267,7 @@ export function Workspace({ initial }: { initial: Data }) {
     delete query.current.period;
     delete query.current.cursor;
     delete query.current.through;
+    delete query.current.from;
     setView(next);
     setCategory(cat);
     setEntity("");
@@ -432,7 +444,7 @@ export function Workspace({ initial }: { initial: Data }) {
                 <div>
                   {[
                     ...nav.filter((n) => !["today", "tasks"].includes(n.id)),
-                    { id: "library", name: "Library", icon: LibraryBig },
+
                   ].map((n) => (
                     <button
                       key={n.id}
@@ -531,17 +543,20 @@ export function Workspace({ initial }: { initial: Data }) {
                 </button>
               </form>
             )}
+            {view === "master" && <Master />}
+            {view === "account" && <AccountSettings />}
             {view === "today" && <>
               <div className="dashboard-toolbar">
                 <div className="view-toggle" role="group" aria-label="Dashboard view">
                   {(["execute", "manage", "plan"] as const).map(mode => <button key={mode} aria-pressed={dashboard === mode} onClick={() => {
                     delete query.current.through;
+    delete query.current.from;
                     delete query.current.cursor;
                     setDashboard(mode);
                   }}>{mode[0].toUpperCase() + mode.slice(1)}</button>)}
                 </div>
               </div>
-              {dashboard !== "plan" && <DashboardTasks mode={dashboard} data={data} save={save} openTask={openTask}
+              {dashboard !== "plan" && <DashboardTasks onManageRange={setManageRange} mode={dashboard} data={data} save={save} openTask={openTask}
                 search={search} onSearch={setSearch} scope={{ category, entity, tag }}
                 onScope={(kind, id) => {
                   setCategory(kind === "category" ? id : "");
