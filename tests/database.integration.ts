@@ -215,8 +215,8 @@ test("repeat series preserve occurrence identity and completion while supporting
     type: "task.create",
     title: "Repeat test",
     plannedDate: today,
-    color: "blue",
-    icon: "book",
+
+
     repeat: { unit: "DAY", interval: 1, endsOn: addDays(today, 10) },
   });
   let original = await db.task.findUniqueOrThrow({
@@ -249,8 +249,8 @@ test("repeat series preserve occurrence identity and completion while supporting
     title: "Only this one",
     status: "PLANNED",
     plannedDate: addDays(today, 1),
-    color: "rose",
-    icon: "heart",
+
+
   });
   let series = await db.taskSeries.findUniqueOrThrow({ where: { id: sid } });
   original = await db.task.findUniqueOrThrow({ where: { id: original.id } });
@@ -262,14 +262,14 @@ test("repeat series preserve occurrence identity and completion while supporting
     seriesVersion: series.version,
     title: "Whole series",
     status: "PLANNED",
-    color: "purple",
-    icon: "star",
+
+
   });
   const all = await db.task.findMany({ where: { seriesId: sid } });
   assert.ok(
     all.every(
       (t) =>
-        t.title === "Whole series" && t.color === "purple" && t.icon === "star",
+        t.title === "Whole series",
     ),
   );
   assert.equal(all.find((t) => t.id === original.id)!.status, "COMPLETED");
@@ -316,7 +316,7 @@ test("repeat series preserve occurrence identity and completion while supporting
   assert.ok(
     (
       await db.task.findMany({ where: { seriesId: sid, archivedAt: null } })
-    ).every((t) => t.title === "Whole series" && t.color === "purple"),
+    ).every((t) => t.title === "Whole series"),
   );
   series = await db.taskSeries.findUniqueOrThrow({ where: { id: sid } });
   await executeCommand(uid, {

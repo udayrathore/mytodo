@@ -1,10 +1,10 @@
 "use client";
-import { useState } from "react";
-import type { Workspace } from "@/lib/workspace";
-import { addDays, dateKey, descendants, weekOf } from "@/lib/domain";
-import { useRemote } from "./use-remote";
-import { CategoryRadar } from "./category-radar";
-import { Field } from "./ui";
+import { useState} from "react";
+import type { Workspace} from "@/lib/workspace";
+import { addDays,  descendants, weekOf} from "@/lib/domain";
+import { useRemote} from "./use-remote";
+import { CategoryRadar} from "./category-radar";
+import { Field} from "./ui";
 
 export function CategoryDistribution({ data }: { data: Workspace }) {
   const [preset, setPreset] = useState("7d");

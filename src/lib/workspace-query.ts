@@ -43,6 +43,5 @@ export const workspaceQuery = z.object({
   archive: z.enum(["true", "false"]).default("false"),
   tag: z.uuid().optional(),
   entity: z.uuid().optional(),
-  priority: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
 });
 export type WorkspaceQuery = z.infer<typeof workspaceQuery>;

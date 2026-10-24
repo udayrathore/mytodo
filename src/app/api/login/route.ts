@@ -8,7 +8,7 @@ export async function POST(request: Request) {
     if (raw.length > 4000) throw new Error("Invalid credentials.");
     const input = z
       .object({
-        
+
         password: z.string().regex(/^\d{4}$/),
       })
       .parse(JSON.parse(raw));

@@ -136,7 +136,7 @@ test("custom fields enforce template membership, storage type, and immutable his
   );
 });
 
-test("recurrence enforces owner boundaries, one occurrence per date, and valid appearance", async () => {
+test("recurrence enforces owner boundaries, one occurrence per date, and valid priority scores", async () => {
   const series = "00000000-0000-4000-8000-000000000101";
   await db.query(
     "INSERT INTO task_series(id,user_id,unit,interval,starts_on,blueprint,updated_at) VALUES($1,$2,'DAY',1,'2026-10-20','{}',now())",
@@ -161,7 +161,7 @@ test("recurrence enforces owner boundaries, one occurrence per date, and valid a
     /unique/,
   );
   await assert.rejects(
-    db.query("UPDATE tasks SET color='invalid' WHERE id=$1", [task]),
+    db.query("UPDATE tasks SET urgency=11 WHERE id=$1", [task]),
     /check constraint/,
   );
 });

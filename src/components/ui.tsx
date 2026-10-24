@@ -46,10 +46,16 @@ export function Empty({
   );
 }
 export function Drawer({
+  popup = false,
+  hideTitle = false,
+  headerActions,
   title,
   children,
   onClose,
 }: {
+  popup?: boolean;
+  hideTitle?: boolean;
+  headerActions?: ReactNode;
   title: string;
   children: ReactNode;
   onClose: () => void;
@@ -65,7 +71,7 @@ export function Drawer({
     <dialog
       ref={ref}
       aria-label={title}
-      className="drawer"
+      className={popup ? "drawer task-popup" : "drawer"}
       onCancel={onClose}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -73,10 +79,10 @@ export function Drawer({
     >
       <div className="drawer-inner">
         <header className="drawer-head">
-          <span className="eyebrow">{title}</span>
+          <span className={hideTitle ? "sr-only" : "eyebrow"}>{title}</span><div className="drawer-header-actions">{headerActions}</div>
           <button
             className="icon-button"
-            aria-label="Close panel"
+            aria-label={popup ? "Close popup" : "Close panel"}
             onClick={onClose}
           >
             <X size={20} />

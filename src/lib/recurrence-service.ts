@@ -8,11 +8,12 @@ type Blueprint = {
   description: string | null;
   primaryCategoryId: string | null;
   templateId: string | null;
-  priority: "LOW" | "MEDIUM" | "HIGH";
+  urgency: number;
+  importance: number;
   estimatedMinutes: number | null;
-  isMicro?: boolean;
-  color: string;
-  icon: string;
+
+
+
   dueOffsetMs: number | null;
   tags: string[];
   entities: { entityId: string; relationshipType: string }[];
@@ -30,11 +31,12 @@ export async function taskBlueprint(tx: Tx, id: string): Promise<Blueprint> {
       description: t.description,
       primaryCategoryId: t.primaryCategoryId,
       templateId: null,
-      priority: t.priority,
+      urgency: t.urgency,
+              importance: t.importance,
       estimatedMinutes: t.estimatedMinutes,
-      isMicro: t.isMicro,
-      color: t.color,
-      icon: t.icon,
+
+
+
       dueOffsetMs:
         t.dueAt && t.plannedDate
           ? t.dueAt.getTime() - t.plannedDate.getTime()
@@ -113,11 +115,12 @@ export async function generateSeries(
         description: b.description,
         primaryCategoryId: b.primaryCategoryId,
 
-        priority: b.priority,
+        urgency: b.urgency,
+              importance: b.importance,
         estimatedMinutes: b.estimatedMinutes,
-        isMicro: b.isMicro ?? false,
-        color: b.color,
-        icon: b.icon,
+
+
+
         dueAt:
           b.dueOffsetMs === null
             ? null

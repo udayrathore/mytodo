@@ -16,12 +16,6 @@ enum TaskStatus {
   CANCELLED
 }
 
-enum Priority {
-  LOW
-  MEDIUM
-  HIGH
-}
-
 enum EventType {
   CREATED
   UPDATED
@@ -158,6 +152,8 @@ model Category {
 }
 
 model Task {
+  goals GoalTask[]
+  challenges ChallengeTask[]
   id                  String            @id @default(uuid()) @db.Uuid
   userId              String            @map("user_id") @db.Uuid
   user                User              @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -165,16 +161,14 @@ model Task {
   recurrenceDate      DateTime?         @map("recurrence_date") @db.Date
   isException         Boolean           @default(false) @map("is_exception")
   scheduleRemoved     Boolean           @default(false) @map("schedule_removed")
-  isMicro             Boolean           @default(false) @map("is_micro")
-  color               String            @default("sage") @db.VarChar(20)
-  icon                String            @default("none") @db.VarChar(30)
   series              TaskSeries?       @relation(fields: [seriesId], references: [id], onDelete: Restrict)
   title               String            @db.VarChar(240)
   description         String?
   primaryCategoryId   String?           @map("primary_category_id") @db.Uuid
   templateId          String?           @map("template_id") @db.Uuid
   status              TaskStatus        @default(INBOX)
-  priority            Priority          @default(MEDIUM)
+  urgency             Int               @default(5)
+  importance          Int               @default(5)
   plannedDate         DateTime?         @map("planned_date") @db.Date
   dueAt               DateTime?         @map("due_at") @db.Timestamptz(3)
   estimatedMinutes    Int?              @map("estimated_minutes")
@@ -440,6 +434,7 @@ model TaskRelation {
 }
 
 model JournalEntry {
+  challengeLogs ChallengeComment[]
   document Json?
   version Int @default(0)
   id         String                @id @default(uuid()) @db.Uuid
@@ -588,4 +583,126 @@ model TaskComment {
 
   @@index([userId, taskId, createdAt, id])
   @@map("task_comments")
+}
+
+model Goal {
+  challenges Challenge[]
+  id String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  categoryId String @map("category_id") @db.Uuid
+  parentId String? @map("parent_id") @db.Uuid
+  parent Goal? @relation("GoalTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children Goal[] @relation("GoalTree")
+  title String @db.VarChar(240)
+  reason String
+  status String @default("NOT_STARTED")
+  progress Int @default(0)
+  estimatedMinutes Int? @map("estimated_minutes")
+  sortOrder Int @default(0) @map("sort_order")
+  version Int @default(0)
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  comments GoalComment[]
+  tasks GoalTask[]
+  @@unique([id,userId])
+  @@index([userId,categoryId,parentId,sortOrder])
+  @@map("goals")
+}
+model GoalComment {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  goalId String @map("goal_id") @db.Uuid
+  goal Goal @relation(fields:[goalId],references:[id],onDelete:Cascade)
+  body String
+  progress Int?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  @@index([userId,goalId,createdAt])
+  @@map("goal_comments")
+}
+model GoalTask {
+  goalId String @map("goal_id") @db.Uuid
+  taskId String @map("task_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  goal Goal @relation(fields:[goalId],references:[id],onDelete:Cascade)
+  task Task @relation(fields:[taskId],references:[id],onDelete:Cascade)
+  @@id([goalId,taskId])
+  @@index([userId,taskId])
+  @@map("goal_tasks")
+}
+
+model Challenge {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  categoryId String @map("category_id") @db.Uuid
+  parentId String? @map("parent_id") @db.Uuid
+  parent Challenge? @relation("ChallengeTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children Challenge[] @relation("ChallengeTree")
+  title String @db.VarChar(240)
+  coreLearning String @default("") @map("core_learning")
+  reason String
+  goalId String? @map("goal_id") @db.Uuid
+  goal Goal? @relation(fields:[goalId],references:[id],onDelete:SetNull)
+  sortOrder Int @default(0) @map("sort_order")
+  version Int @default(0)
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  comments ChallengeComment[]
+  tasks ChallengeTask[]
+  @@unique([id,userId])
+  @@index([userId,categoryId,parentId,sortOrder])
+  @@map("challenges")
+}
+model ChallengeComment {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  challengeId String @map("challenge_id") @db.Uuid
+  challenge Challenge @relation(fields:[challengeId],references:[id],onDelete:Cascade)
+  kind String @default("CHECK_IN")
+  journalId String? @map("journal_id") @db.Uuid
+  journal JournalEntry? @relation(fields:[journalId],references:[id],onDelete:Restrict)
+  body String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  @@index([userId,challengeId,createdAt])
+  @@map("challenge_comments")
+}
+model ChallengeTask {
+  challengeId String @map("challenge_id") @db.Uuid
+  taskId String @map("task_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  challenge Challenge @relation(fields:[challengeId],references:[id],onDelete:Cascade)
+  task Task @relation(fields:[taskId],references:[id],onDelete:Cascade)
+  @@id([challengeId,taskId])
+  @@index([userId,taskId])
+  @@map("challenge_tasks")
+}
+
+model Learning {
+ categoryId String? @map("category_id") @db.Uuid
+ id String @id @default(uuid()) @db.Uuid
+ userId String @map("user_id") @db.Uuid
+ title String @db.VarChar(240)
+ content String @default("")
+ document Json
+ coreFinding String @default("") @map("core_finding")
+ version Int @default(0)
+ archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+ updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+ updates LearningUpdate[]
+ @@unique([id,userId])
+ @@index([userId,updatedAt])
+ @@map("learnings")
+}
+model LearningUpdate {
+ id String @id @default(uuid()) @db.Uuid
+ userId String @map("user_id") @db.Uuid
+ learningId String @map("learning_id") @db.Uuid
+ learning Learning @relation(fields:[learningId],references:[id],onDelete:Cascade)
+ kind String
+ body String
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+ @@index([userId,learningId,createdAt])
+ @@map("learning_updates")
 }

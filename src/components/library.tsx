@@ -1,19 +1,17 @@
 "use client";
-import { CollectionSettings, CollectionAvatar } from "./collection-settings";
-import { useState, type FormEvent } from "react";
+import { CollectionSettings, CollectionAvatar} from "./collection-settings";
+import { useState, type FormEvent} from "react";
 import {
   Plus,
   Folder,
   Hash,
   Users,
   LayoutTemplate,
-  ArrowUpRight,
-  Trash2,
-} from "lucide-react";
-import type { Workspace } from "@/lib/workspace";
+  ArrowUpRight} from "lucide-react";
+import type { Workspace} from "@/lib/workspace";
 
-import type { Save } from "./task-form";
-import { Drawer, Field, human, Empty } from "./ui";
+import type { Save} from "./task-form";
+import { Drawer, Field, human, Empty} from "./ui";
 export function Library({
   data,
   save,

@@ -301,9 +301,9 @@ export async function executeCommand(userId: string, input: unknown) {
                 data: {
                   userId,
                   title: c.title!,
-                  isMicro: c.isMicro,
-                  color: c.color,
-                  icon: c.icon,
+
+
+
                   primaryCategoryId: category.id,
                   status: "IN_PROGRESS",
                 },
@@ -357,13 +357,14 @@ export async function executeCommand(userId: string, input: unknown) {
           const t = await tx.task.create({
             data: {
               userId,
-              isMicro: c.isMicro,
-              color: c.color,
-              icon: c.icon,
+
+
+
               title: c.title,
               description: c.description,
               primaryCategoryId: c.primaryCategoryId,
-              priority: c.priority,
+              urgency: c.urgency,
+              importance: c.importance,
               plannedDate: asDate(c.plannedDate),
               dueAt: asDate(c.dueAt),
               estimatedMinutes: c.estimatedMinutes,
@@ -376,6 +377,21 @@ export async function executeCommand(userId: string, input: unknown) {
             status: t.status,
             plannedDate: c.plannedDate,
           });
+          for (const goalId of new Set(c.goalIds)) {
+            if (!await tx.goal.findFirst({where:{id:goalId,userId,archivedAt:null}})) throw new DomainError("Choose an active goal.");
+            await tx.goalTask.create({data:{goalId,taskId:t.id,userId}});
+          }
+          for (const challengeId of new Set(c.challengeIds)) {
+            if (!await tx.challenge.findFirst({where:{id:challengeId,userId,archivedAt:null}})) throw new DomainError("Choose an active challenge.");
+            await tx.challengeTask.create({data:{challengeId,taskId:t.id,userId}});
+          }
+          if (c.relatedTaskId) {
+            const target = await taskFor(tx,userId,c.relatedTaskId);
+            if(target.archivedAt) throw new DomainError("Choose an active task.");
+            await tx.taskRelation.create({data:{userId,sourceTaskId:t.id,targetTaskId:target.id,relationType:c.relationType}});
+          }
+          if(c.initialComment) await tx.taskComment.create({data:{userId,taskId:t.id,body:c.initialComment}});
+          if(c.reminderAt) await tx.reminder.create({data:{userId,taskId:t.id,scheduledFor:new Date(c.reminderAt)}});
           if (c.repeat) await attachSeries(tx, userId, t.id, c.repeat);
           return { id: t.id };
         }
@@ -407,11 +423,12 @@ export async function executeCommand(userId: string, input: unknown) {
                   title: c.title,
                   description: c.description,
                   primaryCategoryId: c.primaryCategoryId,
-                  priority: c.priority,
+                  urgency: c.urgency,
+              importance: c.importance,
                   estimatedMinutes: c.estimatedMinutes,
-                  isMicro: c.isMicro,
-                  color: c.color,
-                  icon: c.icon,
+
+
+
                   version: { increment: 1 },
                 },
               });
@@ -421,12 +438,13 @@ export async function executeCommand(userId: string, input: unknown) {
                 "UPDATED",
                 {
                   title: member.title,
-                  isMicro: member.isMicro,
-                  color: member.color,
-                  icon: member.icon,
+
+
+
                   description: member.description,
                   primaryCategoryId: member.primaryCategoryId,
-                  priority: member.priority,
+                  urgency: member.urgency,
+              importance: member.importance,
                   estimatedMinutes: member.estimatedMinutes,
                   tagIds: member.tags.map((t) => t.tagId),
                   entities: member.entities.map((e) => ({
@@ -436,13 +454,14 @@ export async function executeCommand(userId: string, input: unknown) {
                 },
                 {
                   title: c.title,
-                  isMicro: c.isMicro,
-                  color: c.color,
-                  icon: c.icon,
+
+
+
                   scope: "ALL",
                   description: c.description,
                   primaryCategoryId: c.primaryCategoryId,
-                  priority: c.priority,
+                  urgency: c.urgency,
+              importance: c.importance,
                   estimatedMinutes: c.estimatedMinutes,
                   tagIds: c.tagIds,
                   entityIds: c.entityIds,
@@ -459,11 +478,12 @@ export async function executeCommand(userId: string, input: unknown) {
                   title: c.title,
                   description: c.description,
                   primaryCategoryId: c.primaryCategoryId,
-                  priority: c.priority,
+                  urgency: c.urgency,
+              importance: c.importance,
                   estimatedMinutes: c.estimatedMinutes,
-                  isMicro: c.isMicro,
-                  color: c.color,
-                  icon: c.icon,
+
+
+
                   tags: [...new Set(c.tagIds)],
                   entities: [...new Set(c.entityIds)].map((entityId) => ({
                     entityId,
@@ -505,13 +525,14 @@ export async function executeCommand(userId: string, input: unknown) {
               data: {
                 ...statusData,
                 title: c.title,
-                isMicro: c.isMicro,
-                color: c.color,
-                icon: c.icon,
+
+
+
                 isException: !!old.seriesId,
                 description: c.description,
                 primaryCategoryId: c.primaryCategoryId,
-                priority: c.priority,
+                urgency: c.urgency,
+              importance: c.importance,
                 plannedDate: asDate(c.plannedDate),
                 dueAt: asDate(c.dueAt),
                 estimatedMinutes: c.estimatedMinutes,
@@ -541,18 +562,20 @@ export async function executeCommand(userId: string, input: unknown) {
               {
                 title: old.title,
                 description: old.description,
-                priority: old.priority,
+                urgency: old.urgency,
+              importance: old.importance,
                 dueAt: old.dueAt,
                 estimatedMinutes: old.estimatedMinutes,
               },
               {
                 title: c.title,
-                isMicro: c.isMicro,
-                color: c.color,
-                icon: c.icon,
+
+
+
                 isException: !!old.seriesId,
                 description: c.description,
-                priority: c.priority,
+                urgency: c.urgency,
+              importance: c.importance,
                 dueAt: c.dueAt,
                 estimatedMinutes: c.estimatedMinutes,
                 tagIds: c.tagIds,

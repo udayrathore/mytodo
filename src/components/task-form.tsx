@@ -1,5 +1,7 @@
 "use client";
-import { AppearanceFields, RepeatFields, readRepeat } from "./task-options";
+import { TaskCreateExtras, readTaskCreateExtras } from "./task-create-extras";
+import { TaskPriorityDials } from "./task-priority-dials";
+import { RepeatFields, readRepeat } from "./task-options";
 import { useState, type FormEvent } from "react";
 import type { Workspace, Task } from "@/lib/workspace";
 import { Field, Chips, human, localInput, inputToIso } from "./ui";
@@ -9,7 +11,11 @@ export function TaskForm({
   task,
   save,
   onDone,
+  compact = false,
+  visibleFields = [],
 }: {
+  compact?: boolean;
+  visibleFields?: string[];
   data: Workspace;
   task?: Task;
   save: Save;
@@ -38,14 +44,16 @@ export function TaskForm({
           }
         : {
             repeat: readRepeat(f),
+            ...readTaskCreateExtras(f, data.user.timezone),
           }),
-      isMicro: f.get("isMicro") === "on",
-      color: f.get("color") || "sage",
-      icon: f.get("icon") || "none",
+
+
+
       title: f.get("title"),
       description: f.get("description"),
       primaryCategoryId: f.get("primaryCategoryId") || null,
-      priority: f.get("priority"),
+      urgency: Number(f.get("urgency")),
+      importance: Number(f.get("importance")),
       plannedDate: f.get("plannedDate") || null,
       dueAt: dt ? inputToIso(dt, data.user.timezone) : null,
       estimatedMinutes: f.get("estimatedMinutes")
@@ -61,6 +69,7 @@ export function TaskForm({
   return (
     <form onSubmit={submit} className="form-stack">
       {task?.seriesId && (
+        <div hidden={compact&&!visibleFields.includes("series")}>
         <label className="field">
           Apply changes to
           <select value={scope} onChange={(e) => setScope(e.target.value)}>
@@ -69,18 +78,15 @@ export function TaskForm({
           </select>
           <small>
             {scope === "ALL"
-              ? "Updates title, notes, category, priority, estimate, tags, entities, color and icon across the series, including future tasks. Individual dates and completion statuses are preserved."
+              ? "Updates title, notes, category, urgency, importance, estimate, tags and entities across the series, including future tasks. Individual dates and completion statuses are preserved."
               : "Other occurrences will stay unchanged."}
           </small>
         </label>
+        </div>
       )}
-      <AppearanceFields
-        isMicro={task?.isMicro}
-        color={task?.color}
-        icon={task?.icon}
-      />
+
       {!task && <RepeatFields />}
-      <Field label="What’s on your mind?">
+      <Field label="Task name">
         <input
           name="title"
           autoFocus
@@ -91,15 +97,16 @@ export function TaskForm({
           className="title-input"
         />
       </Field>
-      <Field label="Notes">
+      <div hidden={compact&&!visibleFields.includes("notes")&&!task?.description}><Field label="Notes">
         <textarea
           name="description"
           rows={3}
           defaultValue={task?.description || ""}
           placeholder="Notes"
         />
-      </Field>
+      </Field></div>
       <div className="form-grid">
+        <div className="task-basics-row">
         <Field label="Category">
           <select
             name="primaryCategoryId"
@@ -119,22 +126,17 @@ export function TaskForm({
               ))}
           </select>
         </Field>
-        <Field label="Priority">
-          <select name="priority" defaultValue={task?.priority || "MEDIUM"}>
-            {["LOW", "MEDIUM", "HIGH"].map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Planned date">
+        <TaskPriorityDials urgency={task?.urgency} importance={task?.importance} />
+        </div>
+        <div hidden={compact&&!visibleFields.includes("date")}> <Field label="Planned date">
           <input
             type="date"
             name="plannedDate"
             disabled={scope === "ALL"}
             defaultValue={task?.plannedDate?.slice(0, 10)}
           />
-        </Field>
-        <Field label={`Due · ${data.user.timezone}`}>
+        </Field></div>
+        <div hidden={compact&&!visibleFields.includes("due")}><Field label={`Due · ${data.user.timezone}`}>
           <input
             type="datetime-local"
             name="dueAt"
@@ -143,8 +145,8 @@ export function TaskForm({
               task?.dueAt ? localInput(task.dueAt, data.user.timezone) : ""
             }
           />
-        </Field>
-        <Field label="Estimate · minutes">
+        </Field></div>
+        <div hidden={compact&&!visibleFields.includes("estimate")}><Field label="Estimate · minutes">
           <input
             name="estimatedMinutes"
             type="number"
@@ -153,8 +155,8 @@ export function TaskForm({
             defaultValue={task?.estimatedMinutes ?? ""}
             placeholder="Optional"
           />
-        </Field>
-        {task ? (
+        </Field></div>
+        {task && !compact ? (
           <Field label="Status">
             <select
               name="status"
@@ -177,11 +179,11 @@ export function TaskForm({
           </Field>
         ) : null}
       </div>
-      <div className="field">
+<div hidden={compact&&!visibleFields.includes("tags")}>       <div className="field">
         <span>Tags</span>
         <Chips items={data.tags} selected={tags} onChange={setTags} />
       </div>
-      <div className="field">
+</div><div hidden={compact&&!visibleFields.includes("entities")}>       <div className="field">
         <span>Related entities</span>
         <Chips
           items={data.entities.filter(
@@ -203,6 +205,8 @@ export function TaskForm({
           />
         </Field>
       )}
+</div>
+      {!task && <TaskCreateExtras data={data} includeFields={false} />}
       <button className="button primary" disabled={busy}>
         {busy ? "Saving…" : task ? "Save changes" : "Add task"}
       </button>

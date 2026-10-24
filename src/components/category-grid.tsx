@@ -1,4 +1,6 @@
 "use client";
+import { TaskCreateExtras, readTaskCreateExtras } from "./task-create-extras";
+import { TaskPriorityDials } from "./task-priority-dials";
 import { useMemo, useState, useEffect, type FormEvent } from "react";
 import {
   ChevronLeft,
@@ -10,12 +12,10 @@ import {
 import type { Workspace, Task } from "@/lib/workspace";
 import { addDays } from "@/lib/domain";
 import { trackerColumns, trackerEntries, taskEntries } from "@/lib/tracker";
-import { Drawer, duration } from "./ui";
+import { Drawer, duration, inputToIso } from "./ui";
 import {
-  AppearanceFields,
   RepeatFields,
   readRepeat,
-  TaskIcon,
 } from "./task-options";
 import { Repeat2 } from "lucide-react";
 import { TaskPicker } from "./task-picker";
@@ -44,7 +44,7 @@ export function CategoryGrid({
     mode: "plan" | "log";
   } | null>(null);
   const columns = useMemo(() => trackerColumns(data), [data]);
-  const [showActivity, setShowActivity] = useState(false);
+  const showActivity = false;
   const [pending, setPending] = useState<string | null>(null);
   const nextIds = useMemo(() => {
     const next = new Map<string, Task>();
@@ -236,43 +236,6 @@ export function CategoryGrid({
                                 <span className="entry-note">{e.note}</span>
                               )}
                             </button>
-                          ) : e.task.isMicro ? (
-                            <button
-                              key={e.id}
-                              className={
-                                "micro-task color-" +
-                                e.task.color +
-                                (e.task.status === "COMPLETED"
-                                  ? " micro-complete"
-                                  : "")
-                              }
-                              role="checkbox"
-                              aria-checked={e.task.status === "COMPLETED"}
-                              aria-label={`${e.task.status === "COMPLETED" ? "Reopen" : "Complete"} ${e.task.title}`}
-                              data-tooltip={`${e.task.title} · ${e.task.status === "COMPLETED" ? "Completed — click to reopen" : "Click to complete"}`}
-                              disabled={pending !== null}
-                              onClick={() =>
-                                changeStatus(
-                                  e.task,
-                                  e.task.status === "COMPLETED"
-                                    ? "PLANNED"
-                                    : "COMPLETED",
-                                )
-                              }
-                            >
-                              <TaskIcon
-                                name={
-                                  e.task.icon === "none" ? "check" : e.task.icon
-                                }
-                                size={19}
-                              />
-                              {e.task.status === "COMPLETED" && (
-                                <span
-                                  className="micro-strike"
-                                  aria-hidden="true"
-                                />
-                              )}
-                            </button>
                           ) : (
                             <article
                               key={e.id}
@@ -286,8 +249,8 @@ export function CategoryGrid({
                                 openTask(e.task);
                               }}
                               className={
-                                "sheet-entry todo-entry color-" +
-                                (e.task.color || "sage") +
+                                "sheet-entry todo-entry " +
+                                "" +
                                 " " +
                                 (e.task.status === "COMPLETED"
                                   ? "is-complete"
@@ -319,8 +282,8 @@ export function CategoryGrid({
                                   className="todo-title"
                                   aria-label={`Open ${e.task.title}`}
                                 >
-                                  <TaskIcon name={e.task.icon} />
                                   {e.task.title}
+
                                 </button>
                                 {e.task.seriesId && (
                                   <span
@@ -369,25 +332,9 @@ export function CategoryGrid({
           </summary>
           <div>
             {unplaced.map((t) =>
-              t.isMicro ? (
-                <button
-                  key={t.id}
-                  className="micro-task"
-                  role="checkbox"
-                  aria-checked={false}
-                  aria-label={`Complete ${t.title}`}
-                  data-tooltip={`${t.title} · ${t.plannedDate?.slice(0, 10) || "Unscheduled"} · Click to complete`}
-                  disabled={pending !== null}
-                  onClick={() => changeStatus(t, "COMPLETED")}
-                >
-                  <TaskIcon
-                    name={t.icon === "none" ? "check" : t.icon}
-                    size={19}
-                  />
-                </button>
-              ) : (
+              (
                 <div
-                  className={"backlog-task color-" + (t.color || "sage")}
+                  className={"backlog-task"}
                   key={t.id}
                 >
                   <button
@@ -399,8 +346,8 @@ export function CategoryGrid({
                     onClick={() => changeStatus(t, "COMPLETED")}
                   />
                   <button onClick={() => openTask(t)}>
-                    <TaskIcon name={t.icon} />
                     {t.title}
+
                     <ArrowUpRight size={13} />
                   </button>
                 </div>
@@ -410,7 +357,7 @@ export function CategoryGrid({
         </details>
       )}
       {cell && (
-        <Drawer
+        <Drawer popup
           title={cell.mode === "plan" ? "Add a task" : "Record what you did"}
           onClose={() => setCell(null)}
         >
@@ -465,10 +412,17 @@ export function QuickTaskForm({
       mode === "plan"
         ? {
             type: "task.create",
-            isMicro: f.get("isMicro") === "on",
-            color: f.get("color") || "sage",
-            icon: f.get("icon") || "none",
+
+
+
             repeat: readRepeat(f),
+            ...readTaskCreateExtras(f, data.user.timezone),
+            dueAt: f.get("dueAt") ? inputToIso(String(f.get("dueAt")), data.user.timezone) : null,
+            estimatedMinutes: f.get("estimatedMinutes") ? Number(f.get("estimatedMinutes")) : null,
+            tagIds: f.getAll("tagIds"), entityIds: f.getAll("entityIds"),
+            relationshipType: f.get("relationshipType") || "CONTRIBUTES_TO",
+            urgency: Number(f.get("urgency")),
+            importance: Number(f.get("importance")),
             title: f.get("title"),
             description: f.get("note") || "",
             primaryCategoryId: categoryId || null,
@@ -476,9 +430,9 @@ export function QuickTaskForm({
           }
         : {
             type: "activity.log",
-            isMicro: f.get("isMicro") === "on",
-            color: f.get("color") || "sage",
-            icon: f.get("icon") || "none",
+
+
+
             taskId: taskId || null,
             title: taskId ? undefined : f.get("title"),
             primaryCategoryId: categoryId || null,
@@ -491,29 +445,22 @@ export function QuickTaskForm({
     setBusy(false);
   }
   return (
-    <form className="form-stack" onSubmit={submit}>
-      <p className="muted">
-        {root?.name || "New task"} · {cell.date}
-      </p>
+    <form className="form-stack quick-task-popup-form" onSubmit={submit}>
       {(mode === "plan" || !taskId) && (
         <label className="field">
-          {mode === "plan" ? "Task" : "What did you do?"}
+          <span className="sr-only">{mode === "plan" ? "Task name" : "What did you do?"}</span>
           <input
             autoFocus
             name="title"
             required
             maxLength={240}
             placeholder={
-              mode === "plan" ? "What needs doing?" : "What did you finish?"
+              mode === "plan" ? "Task name" : "What did you finish?"
             }
           />
         </label>
       )}
-      <details className="task-options">
-        <summary>Add details (optional)</summary>
-        <div className="form-stack">
-          <AppearanceFields />
-          {mode === "plan" && <RepeatFields />}
+      <div className="task-basics-row">
           <label className="field">
             Category
             <select
@@ -531,6 +478,14 @@ export function QuickTaskForm({
               ))}
             </select>
           </label>
+      {mode === "plan" && <TaskPriorityDials />}
+      </div>
+      <details className="task-options">
+        <summary className="task-details-toggle" aria-label="Task details" data-tooltip="Task details"><Plus size={20} aria-hidden="true" /></summary>
+        <div className="form-stack">
+
+          {mode === "plan" && <><RepeatFields /><TaskCreateExtras data={data} /></>}
+
           {mode === "log" && (
             <TaskPicker
               categoryId={categoryId || undefined}

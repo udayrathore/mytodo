@@ -3,29 +3,6 @@ const addDays = (date: string, days: number) =>
   new Date(new Date(date + "T00:00:00Z").getTime() + days * 86400000)
     .toISOString()
     .slice(0, 10);
-export const taskColors = [
-  "sage",
-  "blue",
-  "purple",
-  "rose",
-  "amber",
-  "slate",
-] as const;
-export const taskIcons = [
-  "none",
-  "check",
-  "star",
-  "heart",
-  "home",
-  "briefcase",
-  "book",
-  "fitness",
-  "wallet",
-  "coffee",
-  "music",
-  "leaf",
-  "target",
-] as const;
 export const repeatRule = z.object({
   unit: z.enum(["DAY", "WEEK", "MONTH"]),
   interval: z.number().int().min(1).max(365),

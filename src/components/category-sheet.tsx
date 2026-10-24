@@ -5,7 +5,6 @@ import { addDays, descendants } from "@/lib/domain";
 import type { Task, Workspace } from "@/lib/workspace";
 import { Drawer, human } from "./ui";
 import { groupTasks } from "@/lib/task-groups";
-import { TaskIcon } from "./task-options";
 import type { Save } from "./task-form";
 
 export function CategorySheet({
@@ -234,8 +233,8 @@ export function CategorySheet({
                               className="sheet-task-title"
                               onClick={() => openTask(task)}
                             >
-                              <TaskIcon name={task.icon} />
                               {task.title}
+
                             </button>
                             <small>
                               {task.seriesId
@@ -260,7 +259,7 @@ export function CategorySheet({
                                     <div
                                       key={occurrence.id}
                                       className={
-                                        "sheet-task color-" + occurrence.color
+                                        "sheet-task"
                                       }
                                     >
                                       <button
@@ -333,7 +332,7 @@ export function CategorySheet({
         </p>
       )}
       {capture && (
-        <Drawer
+        <Drawer popup
           title="Add tasks to the timeline"
           onClose={() => setCapture(null)}
         >
@@ -347,7 +346,7 @@ export function CategorySheet({
         </Drawer>
       )}
       {move && (
-        <Drawer title="Move this task" onClose={() => setMove(null)}>
+        <Drawer popup title="Move this task" onClose={() => setMove(null)}>
           <p>
             Move “{move.task.title}” to {move.date}?
           </p>

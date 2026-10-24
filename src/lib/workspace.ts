@@ -66,7 +66,6 @@ export async function getWorkspace(
     if (q.tag) filters.push({ tags: { some: { tagId: q.tag, userId } } });
     if (q.entity)
       filters.push({ entities: { some: { entityId: q.entity, userId } } });
-    if (q.priority) filters.push({ priority: q.priority });
     if ((q.view === "today" && q.dashboard === "plan") || ["category", "projects"].includes(q.view))
       filters.push({
         OR: [
@@ -423,9 +422,9 @@ export type FieldValue = {
 export type Task = {
   totalEffortMinutes?: number;
   id: string;
-  isMicro?: boolean;
-  color: string;
-  icon: string;
+
+
+
   seriesId: string | null;
   recurrenceDate: string | null;
   isException: boolean;
@@ -441,7 +440,8 @@ export type Task = {
   title: string;
   description: string | null;
   status: string;
-  priority: string;
+  urgency: number;
+  importance: number;
   primaryCategoryId: string | null;
   templateId: string | null;
   plannedDate: string | null;

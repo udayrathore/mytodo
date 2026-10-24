@@ -1,18 +1,21 @@
 "use client";
-import { AccountSettings } from "./account-settings";
-import { Master } from "./master";
-import { DashboardTasks } from "./dashboard-tasks";
+import { Learnings} from "./learnings";
+import { Challenges} from "./challenges";
+import { Goals} from "./goals";
+import { AccountSettings} from "./account-settings";
+import { Master} from "./master";
+import { DashboardTasks} from "./dashboard-tasks";
 import {
   useEffect,
   useState,
   useCallback,
   useRef,
-  type FormEvent,
-} from "react";
+  type FormEvent} from "react";
 import {
+  Target,
   Sun,
-  CalendarDays,
-  Inbox,
+
+
   BookOpen,
   History,
   ChartNoAxesCombined,
@@ -24,34 +27,33 @@ import {
   LogOut,
   X,
   RefreshCw,
-  Bell,
-} from "lucide-react";
-import type { Workspace as Data, Task } from "@/lib/workspace";
-import { activeStatuses, descendants } from "@/lib/domain";
+  Bell} from "lucide-react";
+import type { Workspace as Data, Task} from "@/lib/workspace";
+import { activeStatuses, descendants} from "@/lib/domain";
 import {
   NoticeContext,
   Drawer,
   Empty,
   human,
   duration,
-  displayDate,
-} from "./ui";
-import { CategoryGrid, QuickTaskForm } from "./category-grid";
-import { groupTasks } from "@/lib/task-groups";
-import { TaskIcon } from "./task-options";
-import { TaskDetail } from "./task-detail";
-import { JournalView } from "./journal";
-import { Library } from "./library";
-import { Planning } from "./planning";
-import { useRemote } from "./use-remote";
-import { CategorySheet } from "./category-sheet";
-import { Projects } from "./projects";
-import { CategoryDistribution } from "./category-distribution";
-import { Insights, Timeline } from "./insights";
+  displayDate} from "./ui";
+import { CategoryGrid, QuickTaskForm} from "./category-grid";
+import { groupTasks} from "@/lib/task-groups";
+import { TaskDetail} from "./task-detail";
+import { JournalView} from "./journal";
+import { Library} from "./library";
+import { Planning} from "./planning";
+import { useRemote} from "./use-remote";
+import { CategorySheet} from "./category-sheet";
+import { Projects} from "./projects";
+import { CategoryDistribution} from "./category-distribution";
+import { Insights, Timeline} from "./insights";
 const nav = [
   { id: "today", name: "My day", icon: Sun },
 
-  { id: "tasks", name: "Tasks", icon: Inbox },
+  { id: "goals", name: "Goals", icon: Target },
+  { id: "challenges", name: "Challenges", icon: Target },
+  { id: "learnings", name: "Learnings", icon: BookOpen },
   { id: "journal", name: "Journal", icon: BookOpen },
   { id: "timeline", name: "Timeline", icon: History },
   { id: "projects", name: "Projects", icon: LibraryBig },
@@ -73,6 +75,9 @@ const headings: Record<string, string> = {
   distribution: "Category balance",
   library: "Library",
   master: "Master",
+  goals: "Goals",
+  challenges: "Challenges",
+  learnings: "Learnings",
   account: "Login & recovery",
 };
 export function Workspace({ initial }: { initial: Data }) {
@@ -85,12 +90,12 @@ export function Workspace({ initial }: { initial: Data }) {
   const [tag, setTag] = useState("");
   const [entity, setEntity] = useState("");
   const [archive, setArchive] = useState(false);
-  const [priority, setPriority] = useState("");
   const [drawer, setDrawer] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(
     null,
   );
   const [saving, setSaving] = useState(false);
+  const [newTaskDate, setNewTaskDate] = useState<string | null>(null);
   const [capture, setCapture] = useState("");
   const [expandedSeries, setExpandedSeries] = useState<string[]>([]);
   const [visible, setVisible] = useState(60);
@@ -99,7 +104,7 @@ export function Workspace({ initial }: { initial: Data }) {
   const [loading, setLoading] = useState(false);
   query.current = {
     ...query.current,
-    view: ["master", "account"].includes(view) ? "library" : view,
+    view: ["master", "account", "goals", "challenges", "learnings"].includes(view) ? "library" : view,
     dashboard,
     ...(category ? { category } : { category: "" }),
     search:
@@ -112,7 +117,6 @@ export function Workspace({ initial }: { initial: Data }) {
     archive: String(view === "tasks" && archive),
     tag: view === "tasks" || view === "today" ? tag : "",
     entity: view === "tasks" || view === "today" ? entity : "",
-    priority: view === "tasks" ? priority : "",
   };
   const refresh = useCallback(async (through?: string, append = false) => {
     if (through) query.current.through = through;
@@ -168,7 +172,7 @@ export function Workspace({ initial }: { initial: Data }) {
       void refresh().catch((e) => setNotice({ text: e.message, error: true }));
     }, 150);
     return () => clearTimeout(timer);
-  }, [view, dashboard, category, search, status, archive, tag, entity, priority, refresh]);
+  }, [view, dashboard, category, search, status, archive, tag, entity, refresh]);
   const setManageRange = useCallback((from: string, through: string) => {
     query.current.from = from;
     query.current.through = through;
@@ -290,6 +294,7 @@ export function Workspace({ initial }: { initial: Data }) {
   }
   function closeDrawer() {
     setDrawer(null);
+    setNewTaskDate(null);
     window.history.replaceState(
       {},
       "",
@@ -323,8 +328,7 @@ export function Workspace({ initial }: { initial: Data }) {
         (status === "OPEN" && activeStatuses.has(t.status)) ||
         t.status === status) &&
       (!tag || t.tags.some((l) => l.tagId === tag)) &&
-      (!entity || t.entities.some((l) => l.entityId === entity)) &&
-      (!priority || t.priority === priority),
+      (!entity || t.entities.some((l) => l.entityId === entity)),
   );
   const groupedTasks = groupTasks(filtered);
   const selected = detail.data?.tasks.find((t) => t.id === drawer);
@@ -334,8 +338,8 @@ export function Workspace({ initial }: { initial: Data }) {
       {tasks.map((t) => (
         <div
           className={
-            "task-row color-" +
-            (t.color || "sage") +
+            "task-row " +
+            "" +
             " " +
             (t.status === "COMPLETED" ? "completed" : "")
           }
@@ -360,7 +364,7 @@ export function Workspace({ initial }: { initial: Data }) {
           </button>
           <button className="task-main" onClick={() => openTask(t)}>
             <span className="task-title">
-              <TaskIcon name={t.icon} /> {t.title}
+              {t.title}
             </span>
             <span className="task-meta">
               {t.seriesId && (
@@ -393,10 +397,7 @@ export function Workspace({ initial }: { initial: Data }) {
             </span>
           </button>
           <div className="task-trailing">
-            <span
-              className={"priority-dot " + t.priority.toLowerCase()}
-              title={`${human(t.priority)} priority`}
-            />
+
             {t.status === "IN_PROGRESS" ? (
               <span className="status in_progress">In progress</span>
             ) : t.estimatedMinutes ? (
@@ -426,9 +427,11 @@ export function Workspace({ initial }: { initial: Data }) {
         </a>
         <div className="main-shell">
           <header className="tracker-topbar">
+            <div className="sidebar-profile"><span className="profile-avatar">{data.user.name.slice(0, 1).toUpperCase()}</span><strong>{data.user.name}</strong></div>
+            <button className="sidebar-add" onClick={() => setDrawer("new")}><Plus size={20} />Add task</button>
             <nav aria-label="Main navigation" className="top-navigation">
               {nav
-                .filter((n) => ["today", "tasks"].includes(n.id))
+                .filter((n) => ["today", "tasks", "goals", "challenges", "learnings"].includes(n.id))
                 .map((n) => (
                   <button
                     key={n.id}
@@ -439,29 +442,17 @@ export function Workspace({ initial }: { initial: Data }) {
                     <span>{n.name}</span>
                   </button>
                 ))}
-              <details className="more-tools">
-                <summary>More</summary>
-                <div>
-                  {[
-                    ...nav.filter((n) => !["today", "tasks"].includes(n.id)),
 
-                  ].map((n) => (
-                    <button
-                      key={n.id}
-                      className={view === n.id ? "active" : ""}
-                      onClick={(e) => {
-                        navigate(n.id);
-                        e.currentTarget
-                          .closest("details")
-                          ?.removeAttribute("open");
-                      }}
-                    >
-                      <n.icon size={16} />
-                      <span>{n.name}</span>
-                    </button>
-                  ))}
+            </nav>
+            <nav className="sidebar-settings" aria-label="Account and tools">
+              <button className={view === "master" ? "active" : ""} onClick={() => navigate("master")}><LibraryBig size={16} />Master</button>
+              <details className="sidebar-tools-menu">
+                <summary><LibraryBig size={16} />Menu</summary>
+                <div className="sidebar-tools-popover">
+                  {nav.filter(n => !["today", "tasks", "goals", "challenges", "learnings", "master", "account"].includes(n.id)).map(n => <button key={n.id} className={view === n.id ? "active" : ""} onClick={e => { navigate(n.id); e.currentTarget.closest("details")?.removeAttribute("open"); }}><n.icon size={16} />{n.name}</button>)}
                 </div>
               </details>
+              <button className={view === "account" ? "active" : ""} onClick={() => navigate("account")}><LibraryBig size={16} />Account settings</button>
             </nav>
             <div className="top-actions">
               <button
@@ -545,6 +536,9 @@ export function Workspace({ initial }: { initial: Data }) {
             )}
             {view === "master" && <Master />}
             {view === "account" && <AccountSettings />}
+            {view === "learnings" && <Learnings />}
+            {view === "challenges" && <Challenges onOpenTask={id => setDrawer(id)} />}
+            {view === "goals" && <Goals onOpenTask={id => setDrawer(id)} />}
             {view === "today" && <>
               <div className="dashboard-toolbar">
                 <div className="view-toggle" role="group" aria-label="Dashboard view">
@@ -556,8 +550,8 @@ export function Workspace({ initial }: { initial: Data }) {
                   }}>{mode[0].toUpperCase() + mode.slice(1)}</button>)}
                 </div>
               </div>
-              {dashboard !== "plan" && <DashboardTasks onManageRange={setManageRange} mode={dashboard} data={data} save={save} openTask={openTask}
-                search={search} onSearch={setSearch} scope={{ category, entity, tag }}
+              {dashboard !== "plan" && <DashboardTasks onAdd={(date) => { setNewTaskDate(date || null); setDrawer("new"); }} onManageRange={setManageRange} mode={dashboard} data={data} save={save} openTask={openTask}
+                scope={{ category, entity, tag }}
                 onScope={(kind, id) => {
                   setCategory(kind === "category" ? id : "");
                   setEntity(kind === "entity" ? id : "");
@@ -621,16 +615,7 @@ export function Workspace({ initial }: { initial: Data }) {
                       </option>
                     ))}
                   </select>
-                  <select
-                    aria-label="Priority filter"
-                    value={priority}
-                    onChange={(e) => setPriority(e.target.value)}
-                  >
-                    <option value="">All priorities</option>
-                    {["HIGH", "MEDIUM", "LOW"].map((s) => (
-                      <option key={s}>{s}</option>
-                    ))}
-                  </select>
+
                   <select
                     aria-label="Tag filter"
                     value={tag}
@@ -818,14 +803,15 @@ export function Workspace({ initial }: { initial: Data }) {
           </main>
         </div>
         {drawer && (
-          <Drawer
+          <Drawer popup
+            hideTitle={drawer !== "new"}
             title={drawer === "new" ? "Add a task" : "Task details"}
             onClose={closeDrawer}
           >
             {drawer === "new" ? (
               <QuickTaskForm
                 data={data}
-                cell={{ date: data.today, categoryId: "", mode: "plan" }}
+                cell={{ date: newTaskDate || data.today, categoryId: "", mode: "plan" }}
                 save={save}
                 onDone={closeDrawer}
               />

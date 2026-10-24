@@ -1,17 +1,20 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
-import type { Workspace, Task } from "@/lib/workspace";
-import { Library } from "./library";
-import { Projects } from "./projects";
-import { JournalView } from "./journal";
-import { TaskDetail } from "./task-detail";
-import { TaskForm } from "./task-form";
-import { Drawer, human } from "./ui";
-import { useRemote } from "./use-remote";
-const tabs = ["Tasks", "Projects", "Categories", "Journals", "Entities", "Tags"];
+import { useState, useEffect, useCallback} from "react";
+import type { Workspace} from "@/lib/workspace";
+import { Library} from "./library";
+import { Projects} from "./projects";
+import { JournalView} from "./journal";
+import { TaskDetail} from "./task-detail";
+import { TaskForm} from "./task-form";
+import { Drawer, human} from "./ui";
+import { useRemote} from "./use-remote";
+import { Learnings} from "./learnings";
+import { Challenges} from "./challenges";
+import { Goals} from "./goals";
+const tabs = ["Tasks", "Projects", "Categories", "Journals", "Entities", "Tags", "Goals", "Challenges", "Learnings"];
 export function Master() {
   const [tab, setTab] = useState("Tasks");
-  return <section className="master-screen"><div className="tabs" role="tablist" aria-label="Master records">{tabs.map(t => <button role="tab" aria-selected={t === tab} className={t === tab ? "active" : ""} key={t} onClick={() => setTab(t)}>{t}</button>)}</div><MasterRecords key={tab} tab={tab} /></section>;
+  return <section className="master-screen"><div className="tabs" role="tablist" aria-label="Master records">{tabs.map(t => <button role="tab" aria-selected={t === tab} className={t === tab ? "active" : ""} key={t} onClick={() => setTab(t)}>{t}</button>)}</div>{tab === "Learnings" ? <Learnings /> : tab === "Challenges" ? <Challenges /> : tab === "Goals" ? <Goals /> : <MasterRecords key={tab} tab={tab} />}</section>;
 }
 function MasterRecords({ tab }: { tab: string }) {
   const [data, setData] = useState<Workspace | null>(null);

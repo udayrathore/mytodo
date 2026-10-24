@@ -1,11 +1,11 @@
 "use client";
-import { RemoteHistory } from "./remote-history";
-import { useState } from "react";
-import { useRemote } from "./use-remote";
-import { analytics } from "@/lib/analytics";
-import { weekOf, addDays, dateKey } from "@/lib/domain";
-import type { Workspace, Task } from "@/lib/workspace";
-import { duration, displayDate, human, Empty, Field } from "./ui";
+import { RemoteHistory} from "./remote-history";
+import { useState} from "react";
+import { useRemote} from "./use-remote";
+import { analytics} from "@/lib/analytics";
+import { weekOf, addDays} from "@/lib/domain";
+import type { Workspace, Task} from "@/lib/workspace";
+import { duration, displayDate,   Field} from "./ui";
 export function Insights({ data }: { data: Workspace }) {
   const [from, setFrom] = useState(addDays(weekOf(data.today).start, -21));
   const [to, setTo] = useState(data.today);

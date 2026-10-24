@@ -2,18 +2,17 @@
 import { CollectionAvatar } from "./collection-settings";
 import { useState, useEffect } from "react";
 import { addDays, dateKey } from "@/lib/domain";
-import { Check, Repeat2, PanelLeft, ChevronLeft, ChevronRight } from "lucide-react";
+import { Check, Repeat2, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Task, Workspace } from "@/lib/workspace";
 import type { Save } from "./task-form";
-import { TaskIcon } from "./task-options";
 
-export function DashboardTasks({ mode, data, save, openTask, scope, onScope, search, onSearch, onManageRange }: {
+export function DashboardTasks({ mode, data, save, openTask, onAdd, scope, onScope, onManageRange }: {
+  onAdd: (date?: string) => void;
   onManageRange: (from: string, through: string) => void;
   mode: "execute" | "manage"; data: Workspace; save: Save; openTask: (task: Task) => void;
   scope: { category: string; entity: string; tag: string };
-  onScope: (kind: string, id: string) => void; search: string; onSearch: (value: string) => void;
+  onScope: (kind: string, id: string) => void;
 }) {
-  const [sidebar, setSidebar] = useState(true);
   const [start, setStart] = useState(data.today);
   const [laneCount, setLaneCount] = useState(3);
   useEffect(() => {
@@ -48,11 +47,12 @@ export function DashboardTasks({ mode, data, save, openTask, scope, onScope, sea
     const remainder = daysLate % 7;
     const delay = weeks ? `${weeks} ${weeks === 1 ? "week" : "weeks"}${remainder ? ` ${remainder} ${remainder === 1 ? "day" : "days"}` : ""}` : `${daysLate} ${daysLate === 1 ? "day" : "days"}`;
     return <article key={task.id}
-      className={`dashboard-task color-${task.color || "sage"} ${done ? "is-complete" : ""}`}
+      className={`dashboard-task ${done ? "is-complete" : ""}`}
       draggable={mode === "manage" && !busy}
       onDragStart={e => { setDragging(task.id); e.dataTransfer.setData("text/plain", task.id); e.dataTransfer.effectAllowed = "move"; }}
       onDragEnd={() => { setDragging(null); setOver(null); }}
-      onClick={e => { if (!(e.target as Element).closest("button,input,select,label,form")) openTask(task); }}>
+      onClick={e => { if (!(e.target as Element).closest("button,input,select,label,form,summary")) openTask(task); }}>
+      {mode === "manage" && task.primaryCategoryId && <div className="board-card-category">{data.categories.find(c => c.id === task.primaryCategoryId)?.name}</div>}
       <div className="dashboard-task-main">
         <button className="todo-check"
           role="checkbox" aria-checked={done} aria-label={`${done ? "Reopen" : "Complete"} ${task.title}`}
@@ -60,25 +60,15 @@ export function DashboardTasks({ mode, data, save, openTask, scope, onScope, sea
           onClick={() => move(task, done ? "PLANNED" : "COMPLETED")}>
           {done ? <Check size={13} /> : null}
         </button>
-        {<button className="dashboard-task-title" onClick={() => openTask(task)}><TaskIcon name={task.icon} />{task.title}</button>}
+        {<button className="dashboard-task-title" onClick={() => openTask(task)}>{task.title} </button>}
         {task.seriesId && <span aria-label="Repeating task" data-tooltip="Repeating task"><Repeat2 size={13} /></span>}
-        <span className={daysLate && !done ? "task-date overdue" : "task-date"}>
+        {mode !== "manage" && <span className={daysLate && !done ? "task-date overdue" : "task-date"}>
           {daysLate && !done ? <>Due {new Date(expected! + "T00:00:00Z").toLocaleDateString("en", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}<span className="overdue-delay">{delay} overdue</span></> : date ? date === data.today ? "Today" : new Date(date + "T00:00:00Z").toLocaleDateString("en", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : ""}
-        </span>
+        </span>}
       </div>
-      {mode === "manage" && <div className="kanban-controls">
-        <form key={date || "undated"} onSubmit={async e => {
-          e.preventDefault(); if (busy) return;
-          const plannedDate = new FormData(e.currentTarget).get("date");
-          if (!plannedDate || plannedDate === date) return;
-          setBusy(true);
-          try { await save({ type: "task.schedule", id: task.id, version: task.version, plannedDate }); }
-          finally { setBusy(false); }
-        }}>
-          <input aria-label={`Reschedule ${task.title}`} type="date" name="date" defaultValue={date || ""} required disabled={busy || done || task.status === "CANCELLED"} />
-          <button className="text-button" disabled={busy || done || task.status === "CANCELLED"} data-tooltip={done || task.status === "CANCELLED" ? "Reopen the task to reschedule" : "Reschedule this occurrence"}>Move date</button>
-        </form>
-      </div>}
+      {mode === "manage" && <>
+        {task.description && <p className="board-card-description">{task.description}</p>}
+</>}
     </article>;
   }
   const dates = [...new Set(tasks.map(t => t.plannedDate?.slice(0,10) || "undated"))].sort();
@@ -102,9 +92,7 @@ export function DashboardTasks({ mode, data, save, openTask, scope, onScope, sea
     </details>;
   }
   return <section aria-label={mode === "execute" ? "Execute tasks" : "Manage tasks"}>
-    <div className="dashboard-filters">
-      <button className="icon-button" aria-label={sidebar ? "Collapse sidebar" : "Expand sidebar"} aria-expanded={sidebar} onClick={() => setSidebar(!sidebar)}><PanelLeft size={19} /></button>
-      <input aria-label="Search tasks" placeholder="Filter tasks…" value={search} onChange={e => onSearch(e.target.value)} />
+    {mode === "manage" && <div className="dashboard-filters">
       {mode === "manage" && <div className="lane-navigation">
         <label>Lanes <select aria-label="Number of lanes" value={laneCount} onChange={e => setLaneCount(Number(e.target.value))}><option value={3}>3</option><option value={5}>5</option></select></label>
         <button className="icon-button" aria-label="Previous day" onClick={() => setStart(addDays(start, -1))}><ChevronLeft size={18} /></button>
@@ -112,29 +100,29 @@ export function DashboardTasks({ mode, data, save, openTask, scope, onScope, sea
         <button className="icon-button" aria-label="Next day" disabled={addDays(start, laneCount) > addDays(data.today, 730)} onClick={() => setStart(addDays(start, 1))}><ChevronRight size={18} /></button>
         <button className="button" onClick={() => setStart(data.today)}>Today</button>
       </div>}
-    </div>
-    <div className={"task-browser " + (sidebar ? "with-sidebar" : "")}>
-      {sidebar && <aside className="task-sidebar" aria-label="Task collections">
-        <div className="sidebar-count-heading"><span>Pending</span><span>Upcoming</span></div>
-        <button className={!scope.category && !scope.entity && !scope.tag ? "active" : ""} onClick={() => onScope("all", "")}><span>Today</span></button>
+    </div>}
+    <div className="task-browser with-sidebar">
+      <aside className="task-sidebar" aria-label="Task collections">
         {section("Projects", "entity", data.entities.filter(e => e.type === "PROJECT" && e.isActive && !e.archivedAt))}
         {section("Categories", "category", data.categories.filter(c => c.isActive && !c.archivedAt).map(c => ({...c, name: (c.parentId ? "↳ " : "") + c.name})))}
         {section("Entities", "entity", data.entities.filter(e => e.type !== "PROJECT" && e.isActive && !e.archivedAt))}
         {section("Tags", "tag", data.tags)}
-      </aside>}
+      </aside>
       <div className="task-browser-content">
         {mode === "execute" ? <div className="execute-list">
+          <header className="execute-heading"><h1>{scope.category ? data.categories.find(c => c.id === scope.category)?.name : scope.entity ? data.entities.find(e => e.id === scope.entity)?.name : scope.tag ? data.tags.find(t => t.id === scope.tag)?.name : "Today"}</h1><p>{tasks.length} {tasks.length === 1 ? "task" : "tasks"}</p></header>
           {dates.map(date => <section key={date}><h2>{dateLabel(date)}</h2>{tasks.filter(t => (t.plannedDate?.slice(0,10) || "undated") === date).map(card)}</section>)}
+          <button className="inline-add-task" onClick={() => onAdd()}><span aria-hidden="true">+</span>Add task</button>
           {!tasks.length && <p className="empty">{todayOnly ? "No pending tasks for today." : "No pending tasks."}</p>}
-        </div> : <div className="kanban-board consecutive-lanes" style={{ gridTemplateColumns: `repeat(${laneCount}, minmax(180px, 1fr))` }}>{laneDates.map(date => {
+        </div> : <div className="kanban-board consecutive-lanes" style={{ gridTemplateColumns: `repeat(${laneCount}, minmax(260px, 1fr))` }}>{laneDates.map(date => {
           const items = tasks.filter(t => (t.plannedDate?.slice(0,10) || "undated") === date);
           return <section key={date} className={`kanban-lane ${over === date ? "drag-over" : ""}`}
             onDragOver={e => { if (dragging && !busy && date !== "undated") { e.preventDefault(); setOver(date); } }}
             onDragLeave={() => setOver(null)}
             onDrop={e => { e.preventDefault(); const task = tasks.find(t => t.id === dragging); setDragging(null); setOver(null); if (task && date !== "undated") void reschedule(task, date); }}>
-            <h2>{dateLabel(date)}<span>{items.length}</span></h2>
+            <h2>{new Date(date + "T00:00:00Z").toLocaleDateString("en", { day: "numeric", month: "short", timeZone: "UTC" })}{date === data.today ? " · Today" : ""}<span>{items.length}</span></h2>
             {items.map(card)}
-            {!items.length && <p className="muted small">Drop tasks here</p>}
+            <button className="inline-add-task" onClick={() => onAdd(date)}><span aria-hidden="true">+</span>Add task</button>
           </section>;
         })}</div>}
         {data.page?.nextCursor && <p className="muted small">Load more below to see later tasks.</p>}

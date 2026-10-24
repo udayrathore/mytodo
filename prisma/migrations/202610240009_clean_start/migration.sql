@@ -1,0 +1,3 @@
+-- Owner-requested clean start before first use. Runs once per database.
+-- Preserve user identities and login-code hashes; clear all application data.
+TRUNCATE TABLE "categories", "tasks", "task_events", "tags", "task_tags", "entities", "task_entity_links", "planning_periods", "task_periods", "task_templates", "task_template_fields", "task_field_values", "task_effort_entries", "task_relations", "journal_entries", "journal_category_links", "journal_entity_links", "reminders", "reminder_deliveries", "sessions", "login_buckets", "task_series", "task_comments", "goals", "goal_comments", "goal_tasks", "challenges", "challenge_comments", "challenge_tasks", "learnings", "learning_updates" RESTART IDENTITY;

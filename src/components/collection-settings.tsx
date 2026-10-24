@@ -49,7 +49,7 @@ export function CollectionSettings({ item, kind, save }: { item: Item; kind: "pr
         still.getContext("2d")!.drawImage(img, 0, 0, still.width, still.height);
         const decoded = new Image(); decoded.src = still.toDataURL("image/png"); await decoded.decode();
         setSource(decoded); setZoom(1); setX(50); setY(50); setFit(false); setRemove(false);
-      } catch (e) { setError(e instanceof Error ? e.message : "Could not read image."); }
+      } catch (e) { setError(e instanceof DOMException && e.name === "EncodingError" ? "This image could not be opened. Try exporting it as JPG or PNG, then upload it again." : e instanceof Error ? e.message : "Could not read image."); }
       finally { if (url) URL.revokeObjectURL(url); setBusy(false); }
     }} /></label>
     {source && <div className="form-stack">

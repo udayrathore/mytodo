@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import type { Save } from "./task-form";
 
 type Comment = { id: string; body: string; createdAt: string };
-export function TaskComments({ taskId, timezone, save }: { taskId: string; timezone: string; save: Save }) {
+export function TaskComments({ taskId, timezone, save, showEditor=true }: { showEditor?:boolean; taskId: string; timezone: string; save: Save }) {
   const [items, setItems] = useState<Comment[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,9 +32,10 @@ export function TaskComments({ taskId, timezone, save }: { taskId: string; timez
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load comments."); }
     finally { setLoading(false); }
   }
+  if(!showEditor&&!items.length&&!error)return null;
   return <section className="subsection task-comments" aria-label="Task comments">
     <h3>Comments</h3>
-    <form className="form-stack" onSubmit={async e => {
+    {showEditor&&<form className="form-stack" onSubmit={async e => {
       e.preventDefault(); if (busy || !body.trim()) return;
       setBusy(true);
       try {
@@ -47,7 +48,7 @@ export function TaskComments({ taskId, timezone, save }: { taskId: string; timez
         <textarea value={body} onChange={e => setBody(e.target.value)} rows={3} maxLength={5000} required disabled={busy} placeholder="Write a comment…" />
       </label>
       <button className="button primary" disabled={busy || loading || !body.trim()}>{busy ? "Adding…" : "Add comment"}</button>
-    </form>
+    </form>}
     {error && <p role="alert">{error} <button className="text-button" onClick={() => setRevision(r => r + 1)}>Retry</button></p>}
     <div aria-live="polite">
       {!loading && !error && !items.length && <p className="muted">No comments yet.</p>}

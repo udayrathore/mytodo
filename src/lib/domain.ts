@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { repeatRule, taskColors, taskIcons } from "./recurrence";
+import { repeatRule } from "./recurrence";
 export class DomainError extends Error {}
 export const statuses = [
   "INBOX",
@@ -31,24 +31,15 @@ const title = z.string().trim().min(1).max(240);
 export const dateOnly = z.iso.date();
 const nullableId = id.nullable().default(null);
 const ids = z.array(id).max(50).default([]);
-const fieldInput = z.record(
-  z.string(),
-  z.union([
-    z.string().max(20000),
-    z.number().finite(),
-    z.boolean(),
-    z.array(z.string().max(240)).max(50),
-    z.null(),
-  ]),
-);
 const taskFields = {
-  isMicro: z.boolean().default(false),
-  color: z.enum(taskColors).default("sage"),
-  icon: z.enum(taskIcons).default("none"),
+
+
+
   title,
   description: text.default(""),
   primaryCategoryId: nullableId,
-  priority: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
+  urgency: z.number().int().min(0).max(10).default(5),
+  importance: z.number().int().min(0).max(10).default(5),
   plannedDate: dateOnly.nullable().default(null),
   dueAt: z.iso.datetime({ offset: true }).nullable().default(null),
   estimatedMinutes: z
@@ -109,9 +100,9 @@ export const commandSchema = z.discriminatedUnion("type", [
 
   z.object({
     type: z.literal("activity.log"),
-    isMicro: z.boolean().default(false),
-    color: z.enum(taskColors).default("sage"),
-    icon: z.enum(taskIcons).default("none"),
+
+
+
     taskId: id.nullable().default(null),
     title: title.optional(),
     primaryCategoryId: id,
@@ -122,6 +113,11 @@ export const commandSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("task.create"),
+    goalIds: ids, challengeIds: ids,
+    relatedTaskId: nullableId,
+    relationType: z.enum(["RELATED_TO", "SUBTASK_OF", "DEPENDS_ON", "BLOCKS", "FOLLOW_UP_TO"]).default("RELATED_TO"),
+    initialComment: z.string().trim().max(5000).default(""),
+    reminderAt: z.iso.datetime({ offset: true }).nullable().default(null),
     repeat: repeatRule.nullable().default(null),
     ...taskFields,
   }),
