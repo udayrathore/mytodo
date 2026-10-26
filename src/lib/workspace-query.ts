@@ -18,6 +18,8 @@ export const workspaceQuery = z.object({
       "picker",
     ])
     .default("today"),
+  sort: z.enum(["plannedDate", "urgency", "importance"]).default("plannedDate"),
+  direction: z.enum(["asc", "desc"]).default("desc"),
   dashboard: z.enum(["execute", "manage", "plan"]).default("execute"),
   from: dateOnly.optional(),
   through: dateOnly.optional(),

@@ -11,11 +11,11 @@
     "build": "prisma generate && next build",
     "start": "next start --hostname 127.0.0.1",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
     "test:integration": "tsx --test tests/*.integration.ts",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate deploy",
-    "db:dev": "prisma migrate dev",
+    "db:migrate": "node scripts/safe-migrate.mjs",
+    "db:dev": "node scripts/safe-migrate.mjs --dev",
     "db:categories": "tsx scripts/setup-categories.ts",
     "db:seed": "tsx prisma/seed.ts",
     "db:local": "tsx scripts/local-db.ts",
@@ -23,7 +23,8 @@
     "postinstall": "prisma generate",
     "db:local:migrate": "tsx scripts/local-migrate.ts",
     "test:browser": "playwright test",
-    "test:http": "tsx --test tests/*.http.ts"
+    "test:http": "tsx --test tests/*.http.ts",
+    "test:isolated": "node scripts/test-isolated.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",

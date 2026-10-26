@@ -207,15 +207,13 @@ test("activity logging supports repeated dated entries with optional time and ow
 
 test("repeat series preserve occurrence identity and completion while supporting scoped edits and schedule changes", async () => {
   const { addDays, dateKey } = await import("../src/lib/domain");
-  const { ensureRecurringTasks } = await import(
-    "../src/lib/recurrence-service"
-  );
+  const { ensureRecurringTasks } =
+    await import("../src/lib/recurrence-service");
   const today = dateKey(new Date(), "Asia/Kolkata");
   const created = await executeCommand(uid, {
     type: "task.create",
     title: "Repeat test",
     plannedDate: today,
-
 
     repeat: { unit: "DAY", interval: 1, endsOn: addDays(today, 10) },
   });
@@ -249,8 +247,6 @@ test("repeat series preserve occurrence identity and completion while supporting
     title: "Only this one",
     status: "PLANNED",
     plannedDate: addDays(today, 1),
-
-
   });
   let series = await db.taskSeries.findUniqueOrThrow({ where: { id: sid } });
   original = await db.task.findUniqueOrThrow({ where: { id: original.id } });
@@ -262,16 +258,9 @@ test("repeat series preserve occurrence identity and completion while supporting
     seriesVersion: series.version,
     title: "Whole series",
     status: "PLANNED",
-
-
   });
   const all = await db.task.findMany({ where: { seriesId: sid } });
-  assert.ok(
-    all.every(
-      (t) =>
-        t.title === "Whole series",
-    ),
-  );
+  assert.ok(all.every((t) => t.title === "Whole series"));
   assert.equal(all.find((t) => t.id === original.id)!.status, "COMPLETED");
   assert.equal(
     all
@@ -357,9 +346,8 @@ test("repeat series preserve occurrence identity and completion while supporting
 
 test("repeat occurrences copy links, while manually archived occurrences stay archived", async () => {
   const { addDays, dateKey } = await import("../src/lib/domain");
-  const { ensureRecurringTasks } = await import(
-    "../src/lib/recurrence-service"
-  );
+  const { ensureRecurringTasks } =
+    await import("../src/lib/recurrence-service");
   const today = dateKey(new Date(), "Asia/Kolkata");
   const tag = await db.tag.create({
     data: { userId: uid, name: "repeat test", slug: "repeat-test" },
@@ -423,3 +411,226 @@ test("repeat occurrences copy links, while manually archived occurrences stay ar
   );
 });
 
+test("project links can be added from task creation and editing, retained on edits, and removed", async () => {
+  const category = await executeCommand(uid, {
+    type: "category.save",
+    name: "Project link regression",
+    parentId: null,
+    sortOrder: 0,
+    isActive: true,
+  });
+  const project = await executeCommand(uid, {
+    type: "project.save",
+    name: "Linked project",
+    categoryIds: [category!.id],
+    description: "",
+  });
+  const task = await executeCommand(uid, {
+    type: "task.create",
+    title: "Project-linked task",
+    entityIds: [project!.id],
+    primaryCategoryId: category!.id,
+  });
+  assert.equal(
+    await db.taskEntityLink.count({
+      where: { taskId: task!.id, entityId: project!.id },
+    }),
+    1,
+  );
+  const current = await db.task.findUniqueOrThrow({ where: { id: task!.id } });
+  await executeCommand(uid, {
+    type: "task.update",
+    id: current.id,
+    version: current.version,
+    title: "Edited linked task",
+    status: current.status,
+    primaryCategoryId: category!.id,
+    entityIds: [project!.id],
+    urgency: 8,
+    importance: 3,
+  });
+  assert.equal(
+    await db.taskEntityLink.count({
+      where: { taskId: current.id, entityId: project!.id },
+    }),
+    1,
+  );
+  await executeCommand(uid, {
+    type: "project.linkTask",
+    id: project!.id,
+    taskId: current.id,
+    linked: false,
+  });
+  assert.equal(
+    await db.taskEntityLink.count({
+      where: { taskId: current.id, entityId: project!.id },
+    }),
+    0,
+  );
+  await executeCommand(uid, {
+    type: "project.linkTask",
+    id: project!.id,
+    taskId: current.id,
+    linked: true,
+  });
+  assert.equal(
+    await db.taskEntityLink.count({
+      where: { taskId: current.id, entityId: project!.id },
+    }),
+    1,
+  );
+  await assert.rejects(
+    executeCommand(other.id, {
+      type: "project.linkTask",
+      id: project!.id,
+      taskId: current.id,
+      linked: true,
+    }),
+    /unavailable/,
+  );
+});
+test("Execute keeps completed tasks after open tasks and sorts priorities across page boundaries", async () => {
+  const { getWorkspace } = await import("../src/lib/workspace");
+  const { dateKey } = await import("../src/lib/domain");
+  const owner = await db.user.findUniqueOrThrow({ where: { id: uid } }),
+    today = dateKey(new Date(), owner.timezone);
+  const category = await executeCommand(uid, {
+    type: "category.save",
+    name: "Priority page regression",
+    parentId: null,
+    sortOrder: 0,
+    isActive: true,
+  });
+  await db.task.createMany({
+    data: Array.from({ length: 105 }, (_, i) => ({
+      userId: uid,
+      title: `Priority ${i}`,
+      plannedDate: new Date(today),
+      status: "PLANNED",
+      primaryCategoryId: category!.id,
+      urgency: i % 11,
+      importance: 10 - (i % 11),
+    })),
+  });
+  const done = await db.task.create({
+    data: {
+      userId: uid,
+      title: "Completed priority task",
+      plannedDate: new Date(today),
+      status: "COMPLETED",
+      completedAt: new Date(),
+      primaryCategoryId: category!.id,
+      urgency: 10,
+      importance: 10,
+    },
+  });
+  const read = (input: Record<string, unknown>) =>
+    getWorkspace(owner, {
+      view: "today",
+      dashboard: "execute",
+      category: category!.id,
+      ...input,
+    });
+  const first = await read({ sort: "urgency", direction: "desc" });
+  assert.equal(first.tasks.length, 100);
+  assert.ok(first.tasks.every((t) => t.status !== "COMPLETED"));
+  assert.ok(
+    first.tasks.every((t, i, a) => i === 0 || a[i - 1].urgency >= t.urgency),
+  );
+  const next = await read({
+    sort: "urgency",
+    direction: "desc",
+    cursor: first.page!.nextCursor,
+  });
+  assert.equal(next.tasks.length, 6);
+  assert.equal(next.tasks.at(-1)!.id, done.id);
+  assert.equal(
+    new Set([...first.tasks, ...next.tasks].map((t) => t.id)).size,
+    106,
+  );
+  assert.ok(first.tasks.at(-1)!.urgency >= next.tasks[0].urgency);
+  const low = await read({ sort: "importance", direction: "asc" });
+  assert.ok(
+    low.tasks.every(
+      (t, i, a) => i === 0 || a[i - 1].importance <= t.importance,
+    ),
+  );
+  const todayView = await getWorkspace(owner, {
+    view: "today",
+    dashboard: "execute",
+    search: "Completed priority task",
+  });
+  assert.ok(todayView.tasks.some((t) => t.id === done.id));
+});
+test("move to tomorrow extends the due date, rejects stale writes, and preserves other repeat occurrences", async () => {
+  const { tomorrowDate, nextDayDueDate } =
+    await import("../src/lib/task-scheduling");
+  const { dateKey } = await import("../src/lib/domain");
+  const owner = await db.user.findUniqueOrThrow({ where: { id: uid } });
+  const today = dateKey(new Date(), owner.timezone);
+  const created = await executeCommand(uid, {
+    type: "task.create",
+    title: "Tomorrow regression",
+    plannedDate: today,
+    dueAt: new Date().toISOString(),
+    repeat: { unit: "DAY", interval: 1, endsOn: null },
+  });
+  const task = await db.task.findUniqueOrThrow({ where: { id: created!.id } });
+  const before = await db.task.findMany({
+    where: { seriesId: task.seriesId!, id: { not: task.id } },
+    orderBy: { id: "asc" },
+  });
+  await executeCommand(uid, {
+    type: "task.tomorrow",
+    id: task.id,
+    version: task.version,
+  });
+  const moved = await db.task.findUniqueOrThrow({ where: { id: task.id } });
+  assert.equal(
+    moved.plannedDate?.toISOString().slice(0, 10),
+    tomorrowDate(owner.timezone),
+  );
+  assert.equal(
+    moved.dueAt?.toISOString(),
+    nextDayDueDate(task.dueAt, owner.timezone)?.toISOString(),
+  );
+  assert.equal(moved.isException, true);
+  assert.equal(
+    moved.recurrenceDate?.toISOString(),
+    task.recurrenceDate?.toISOString(),
+  );
+  assert.deepEqual(
+    await db.task.findMany({
+      where: { seriesId: task.seriesId!, id: { not: task.id } },
+      orderBy: { id: "asc" },
+    }),
+    before,
+  );
+  await assert.rejects(
+    executeCommand(uid, {
+      type: "task.tomorrow",
+      id: task.id,
+      version: task.version,
+    }),
+    /changed/,
+  );
+  const event = await db.taskEvent.findFirstOrThrow({
+    where: { taskId: task.id, eventType: "RESCHEDULED" },
+    orderBy: { createdAt: "desc" },
+  });
+  assert.ok(event.toValue);
+  const undated = await executeCommand(uid, {
+    type: "task.create",
+    title: "Unscheduled tomorrow regression",
+  });
+  await executeCommand(uid, {
+    type: "task.tomorrow",
+    id: undated!.id,
+    version: 0,
+  });
+  const scheduled = await db.task.findUniqueOrThrow({
+    where: { id: undated!.id },
+  });
+  assert.equal(scheduled.status, "PLANNED");
+  assert.equal(scheduled.dueAt, null);
+});

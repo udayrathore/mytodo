@@ -2,96 +2,1294 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import { Drawer } from "./ui";
-type Challenge = {coreLearning:string;id:string;title:string;reason:string;categoryId:string;parentId:string|null;goalId:string|null;sortOrder:number;version:number;archivedAt:string|null};
-type Category = {id:string;name:string;parentId:string|null;isActive:boolean;archivedAt:string|null};
-type ChallengeData = {challenges:Challenge[];categories:Category[];goals:{id:string;title:string;archivedAt:string|null}[];links:{challengeId:string}[]};
-type ChallengeTask = {id:string;title:string;status:string;plannedDate:string|null;dueAt:string|null;completedAt:string|null;archivedAt:string|null};
-type Detail = Challenge & {comments:{id:string;body:string;createdAt:string;kind:string;journal:{id:string;title:string|null;content:string}|null}[];tasks:{task:ChallengeTask}[]};
-async function read<T>(url:string):Promise<T>{const r=await fetch(url,{cache:"no-store"});const d=await r.json();if(!r.ok)throw Error(d.error||"Could not load.");return d;}
-async function write(body:Record<string,unknown>){const r=await fetch('/api/challenges',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw Error(d.error||"Could not save.");return d;}
-export function Challenges({onOpenTask}:{onOpenTask?:(id:string)=>void}){
- const [data,setData]=useState<ChallengeData|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[archive,setArchive]=useState(false),[search,setSearch]=useState('');
- const [selected,setSelected]=useState<string|null>(null),[detail,setDetail]=useState<Detail|null>(null),[editing,setEditing]=useState<Challenge|"new"|null>(null),[parent,setParent]=useState<Challenge|null>(null),[category,setCategory]=useState(''),[drag,setDrag]=useState<string|null>(null),[over,setOver]=useState<string|null>(null);
- const [adding,setAdding]=useState<'task'|'log'|'journal'|null>(null);
- const [extraFields,setExtraFields]=useState<string[]>([]);
- const boardRef=useRef<HTMLDivElement>(null);
- const refresh=useCallback(async()=>{setData(await read<ChallengeData>('/api/challenges'));},[]);
- useEffect(()=>{let live=true;read<ChallengeData>('/api/challenges').then(d=>{if(live)setData(d)}).catch(e=>{if(live)setError(e.message)});return()=>{live=false}},[]);
- useEffect(()=>{let live=true;setDetail(null);if(selected)read<{challenge:Detail}>(`/api/challenges?id=${selected}`).then(d=>{if(live)setDetail(d.challenge)}).catch(e=>{if(live)setError(e.message)});return()=>{live=false}},[selected]);
- async function act(body:Record<string,unknown>){if(busy)return false;setBusy(true);setError('');try{await write(body);await refresh();if(selected&&body.action!=="delete")setDetail((await read<{challenge:Detail}>(`/api/challenges?id=${selected}`)).challenge);return true;}catch(e){setError(e instanceof Error?e.message:'Could not save.');return false;}finally{setBusy(false)}}
- if(!data)return <p role="status">{error||'Loading challenges…'}</p>;
- function categoryPath(c:Category){const names=[c.name];const seen=new Set([c.id]);let p=c.parentId;while(p&&!seen.has(p)){seen.add(p);const found=data!.categories.find(x=>x.id===p);if(!found)break;names.unshift(found.name);p=found.parentId;}return names.join(' / ');}
- const visible=data.challenges.filter(g=>Boolean(g.archivedAt)===archive);
- const matches=new Set(visible.filter(g=>`${g.title} ${g.reason}`.toLowerCase().includes(search.toLowerCase())).map(g=>g.id));
- for(const g of visible.filter(g=>matches.has(g.id))){let p=g.parentId;const seen=new Set<string>();while(p&&!seen.has(p)){seen.add(p);matches.add(p);p=data.challenges.find(x=>x.id===p)?.parentId??null;}}
- function challengeCard(g:Challenge):React.ReactNode{return <div key={g.id} className="goal-branch">
-  <article className={`goal-card ${over===g.id?'goal-drop-target':''}`} draggable={!archive&&!busy&&!search} onDragStart={e=>{e.stopPropagation();setDrag(g.id);e.dataTransfer.setData('text/plain',g.id)}} onDragEnd={()=>{setDrag(null);setOver(null)}} onDragOver={e=>{const from=data!.challenges.find(x=>x.id===drag);if(from&&from.id!==g.id&&from.parentId===g.parentId&&from.categoryId===g.categoryId){e.preventDefault();e.stopPropagation();setOver(g.id)}}} onDrop={e=>{e.preventDefault();e.stopPropagation();if(drag&&over===g.id)void act({action:'reorder',id:drag,beforeId:g.id,placement:e.clientY>e.currentTarget.getBoundingClientRect().top+e.currentTarget.getBoundingClientRect().height/2?'after':'before'});setDrag(null);setOver(null)}}>
-   <button className="goal-card-open" onClick={()=>{setError('');setSelected(g.id);setAdding(null);setExtraFields([])}}><span className="goal-card-title">{g.title}</span></button>
-  </article>
- </div>}
- return <section className="goals-module">
-  <div className="section-toolbar"><h2>Challenges</h2><input aria-label="Search challenges" placeholder="Search challenges…" value={search} onChange={e=>setSearch(e.target.value)}/><label className="checkbox-label"><input type="checkbox" checked={archive} onChange={e=>setArchive(e.target.checked)}/>Archived</label><button className="button primary" onClick={()=>{setParent(null);setCategory('');setEditing('new')}}><Plus size={16}/>New challenge</button></div>
-  {error&&<p className="form-error" role="alert">{error}</p>}
-  <div className="goal-scroll-controls"><button type="button" className="icon-button" aria-label="Scroll categories left" title="Previous categories" onClick={()=>boardRef.current?.scrollBy({left:-334,behavior:"smooth"})}><ChevronLeft size={20}/></button><button type="button" className="icon-button" aria-label="Scroll categories right" title="Next categories" onClick={()=>boardRef.current?.scrollBy({left:334,behavior:"smooth"})}><ChevronRight size={20}/></button></div>
-  <div ref={boardRef} className="goals-board" role="region" aria-label="Challenge category lanes" tabIndex={0}>{data.categories.filter(c=>visible.some(g=>!g.parentId&&g.categoryId===c.id&&matches.has(g.id))).map(c=><section className="goal-lane" key={c.id}><h3>{categoryPath(c)} <span>{visible.filter(g=>!g.parentId&&g.categoryId===c.id).length}</span></h3>{visible.filter(g=>g.categoryId===c.id&&!g.parentId&&matches.has(g.id)).map(g=>challengeCard(g))}{!archive&&c.isActive&&!c.archivedAt&&<button className="inline-add-task" onClick={()=>{setParent(null);setCategory(c.id);setEditing('new')}}><Plus size={16}/>Add challenge</button>}</section>)}</div>
-  {selected&&!editing&&<Drawer popup hideTitle title={detail?.title||"Challenge"} headerActions={detail&&!detail.archivedAt?<details className="challenge-add-menu"><summary className="icon-button" aria-label="Add to challenge" title="Add to challenge"><Plus size={20}/></summary><div>{(['task','log','journal','goal','coreLearning','parent','subchallenge'] as const).map(action=><button key={action} type="button" onClick={e=>{e.currentTarget.closest('details')?.removeAttribute('open');if(action==='subchallenge'){setParent(detail);setCategory(detail.categoryId);setEditing('new')}else if(action==='goal'||action==='coreLearning'||action==='parent')setExtraFields(fields=>[...fields,action]);else setAdding(action)}}>{({task:'Link a task',log:'Add a log',journal:'Link a journal',goal:'Link a goal',coreLearning:'Add core learning',parent:'Set parent challenge',subchallenge:'Add a sub-challenge'})[action]}</button>)}</div></details>:null} onClose={()=>{setSelected(null);setDetail(null)}}>{detail?<>
-   {detail.parentId&&<button className="text-button" onClick={()=>setSelected(detail.parentId)}>← {data.challenges.find(c=>c.id===detail.parentId)?.title||"Parent challenge"}</button>}
-   {!detail.archivedAt?<ChallengeForm key={detail.id} compact extraFields={extraFields} challenge={detail} parent={null} initialCategory={detail.categoryId} data={data} busy={busy} save={async body=>{await act(body)}}/>:<><h2>{detail.title}</h2><p>{detail.reason}</p>{detail.coreLearning&&<p>{detail.coreLearning}</p>}</>}
-   <div className="goal-actions"><button className="button" disabled={busy} onClick={()=>{if(detail.archivedAt||window.confirm('Archive this challenge and its subchallenges?'))void act({action:detail.archivedAt?'restore':'archive',id:detail.id,version:detail.version})}}>{detail.archivedAt?'Restore':'Archive'}</button><button className="text-button" disabled={busy} onClick={async()=>{if(window.confirm('Permanently delete this challenge, its subchallenges and comments? Linked tasks will be kept.'))if(await act({action:'delete',id:detail.id,version:detail.version})){setSelected(null);setDetail(null)}}}>Delete</button></div>
-   {data.challenges.some(g=>g.parentId===detail.id)&&<section className="subsection"><h3>Sub-challenges</h3>{data.challenges.filter(g=>g.parentId===detail.id).map(g=><button className="goal-subgoal-link" key={g.id} onClick={()=>setSelected(g.id)}>{g.title}<span>{g.archivedAt?'Archived':''}</span></button>)}</section>}
-   <ChallengeTasks linking={adding==='task'} onDone={()=>setAdding(null)} detail={detail} busy={busy} act={act} onOpenTask={onOpenTask}/>
-   <ChallengeLogs key={`${detail.id}-${adding}`} mode={adding==='log'||adding==='journal'?adding:null} onDone={()=>setAdding(null)} detail={detail} busy={busy} act={act}/>
+type Challenge = {
+  coreLearning: string;
+  id: string;
+  title: string;
+  reason: string;
+  categoryId: string;
+  parentId: string | null;
+  goalId: string | null;
+  sortOrder: number;
+  version: number;
+  archivedAt: string | null;
+};
+type Category = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  isActive: boolean;
+  archivedAt: string | null;
+};
+type ChallengeData = {
+  challenges: Challenge[];
+  categories: Category[];
+  goals: { id: string; title: string; archivedAt: string | null }[];
+  links: { challengeId: string }[];
+};
+type ChallengeTask = {
+  id: string;
+  title: string;
+  status: string;
+  plannedDate: string | null;
+  dueAt: string | null;
+  completedAt: string | null;
+  archivedAt: string | null;
+};
+type Detail = Challenge & {
+  nextCommentsCursor: string | null;
+  comments: {
+    id: string;
+    body: string;
+    createdAt: string;
+    kind: string;
+    journal: { id: string; title: string | null; content: string } | null;
+  }[];
+  tasks: { task: ChallengeTask }[];
+};
+async function read<T>(url: string): Promise<T> {
+  const r = await fetch(url, { cache: "no-store" });
+  const d = await r.json();
+  if (!r.ok) throw Error(d.error || "Could not load.");
+  return d;
+}
+async function write(body: Record<string, unknown>) {
+  const r = await fetch("/api/challenges", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const d = await r.json();
+  if (!r.ok) throw Error(d.error || "Could not save.");
+  return d;
+}
+export function Challenges({
+  onOpenTask,
+}: {
+  onOpenTask?: (id: string) => void;
+}) {
+  const [data, setData] = useState<ChallengeData | null>(null),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false),
+    [archive, setArchive] = useState(false),
+    [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<string | null>(null),
+    [detail, setDetail] = useState<Detail | null>(null),
+    [editing, setEditing] = useState<Challenge | "new" | null>(null),
+    [parent, setParent] = useState<Challenge | null>(null),
+    [category, setCategory] = useState(""),
+    [drag, setDrag] = useState<string | null>(null),
+    [over, setOver] = useState<string | null>(null);
+  const [adding, setAdding] = useState<"task" | "log" | "journal" | null>(null);
+  const [extraFields, setExtraFields] = useState<string[]>([]);
+  const boardRef = useRef<HTMLDivElement>(null);
+  const refresh = useCallback(async () => {
+    setData(await read<ChallengeData>("/api/challenges"));
+  }, []);
+  useEffect(() => {
+    let live = true;
+    read<ChallengeData>("/api/challenges")
+      .then((d) => {
+        if (live) setData(d);
+      })
+      .catch((e) => {
+        if (live) setError(e.message);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+  useEffect(() => {
+    let live = true;
+    setDetail(null);
+    if (selected)
+      read<{ challenge: Detail }>(`/api/challenges?id=${selected}`)
+        .then((d) => {
+          if (live) setDetail(d.challenge);
+        })
+        .catch((e) => {
+          if (live) setError(e.message);
+        });
+    return () => {
+      live = false;
+    };
+  }, [selected]);
+  async function olderComments() {
+    if (!detail?.nextCommentsCursor || busy) return;
+    setBusy(true);
+    const id = detail.id;
+    try {
+      const next = await read<{ challenge: Detail }>(
+        `/api/challenges?id=${id}&commentsCursor=${detail.nextCommentsCursor}`,
+      );
+      setDetail((old) =>
+        old?.id === id
+          ? {
+              ...old,
+              comments: [...old.comments, ...next.challenge.comments],
+              nextCommentsCursor: next.challenge.nextCommentsCursor,
+            }
+          : old,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load comments.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function act(body: Record<string, unknown>) {
+    if (busy) return false;
+    setBusy(true);
+    setError("");
+    try {
+      await write(body);
+      try {
+        await refresh();
+        if (selected && body.action !== "delete")
+          setDetail(
+            (
+              await read<{ challenge: Detail }>(
+                `/api/challenges?id=${selected}`,
+              )
+            ).challenge,
+          );
+      } catch {
+        setError(
+          "Saved. Could not reload the view; refresh to see the latest records.",
+        );
+      }
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (!data) return <p role="status">{error || "Loading challenges…"}</p>;
+  function categoryPath(c: Category) {
+    const names = [c.name];
+    const seen = new Set([c.id]);
+    let p = c.parentId;
+    while (p && !seen.has(p)) {
+      seen.add(p);
+      const found = data!.categories.find((x) => x.id === p);
+      if (!found) break;
+      names.unshift(found.name);
+      p = found.parentId;
+    }
+    return names.join(" / ");
+  }
+  const visible = data.challenges.filter(
+    (g) => Boolean(g.archivedAt) === archive,
+  );
+  const matches = new Set(
+    visible
+      .filter((g) =>
+        `${g.title} ${g.reason}`.toLowerCase().includes(search.toLowerCase()),
+      )
+      .map((g) => g.id),
+  );
+  for (const g of visible.filter((g) => matches.has(g.id))) {
+    let p = g.parentId;
+    const seen = new Set<string>();
+    while (p && !seen.has(p)) {
+      seen.add(p);
+      matches.add(p);
+      p = data.challenges.find((x) => x.id === p)?.parentId ?? null;
+    }
+  }
+  function challengeCard(g: Challenge): React.ReactNode {
+    return (
+      <div key={g.id} className="goal-branch">
+        <article
+          className={`goal-card ${over === g.id ? "goal-drop-target" : ""}`}
+          draggable={!archive && !busy && !search}
+          onDragStart={(e) => {
+            e.stopPropagation();
+            setDrag(g.id);
+            e.dataTransfer.setData("text/plain", g.id);
+          }}
+          onDragEnd={() => {
+            setDrag(null);
+            setOver(null);
+          }}
+          onDragOver={(e) => {
+            const from = data!.challenges.find((x) => x.id === drag);
+            if (
+              from &&
+              from.id !== g.id &&
+              from.parentId === g.parentId &&
+              from.categoryId === g.categoryId
+            ) {
+              e.preventDefault();
+              e.stopPropagation();
+              setOver(g.id);
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (drag && over === g.id)
+              void act({
+                action: "reorder",
+                id: drag,
+                beforeId: g.id,
+                placement:
+                  e.clientY >
+                  e.currentTarget.getBoundingClientRect().top +
+                    e.currentTarget.getBoundingClientRect().height / 2
+                    ? "after"
+                    : "before",
+              });
+            setDrag(null);
+            setOver(null);
+          }}
+        >
+          <button
+            className="goal-card-open"
+            onClick={() => {
+              setError("");
+              setSelected(g.id);
+              setAdding(null);
+              setExtraFields([]);
+            }}
+          >
+            <span className="goal-card-title">{g.title}</span>
+          </button>
+        </article>
+      </div>
+    );
+  }
+  return (
+    <section className="goals-module">
+      <div className="section-toolbar">
+        <h2>Challenges</h2>
+        <input
+          aria-label="Search challenges"
+          placeholder="Search challenges…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={archive}
+            onChange={(e) => setArchive(e.target.checked)}
+          />
+          Archived
+        </label>
+        <button
+          className="button primary"
+          onClick={() => {
+            setParent(null);
+            setCategory("");
+            setEditing("new");
+          }}
+        >
+          <Plus size={16} />
+          New challenge
+        </button>
+      </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="goal-scroll-controls">
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Scroll categories left"
+          title="Previous categories"
+          onClick={() =>
+            boardRef.current?.scrollBy({ left: -334, behavior: "smooth" })
+          }
+        >
+          <ChevronLeft size={20} />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Scroll categories right"
+          title="Next categories"
+          onClick={() =>
+            boardRef.current?.scrollBy({ left: 334, behavior: "smooth" })
+          }
+        >
+          <ChevronRight size={20} />
+        </button>
+      </div>
+      <div
+        ref={boardRef}
+        className="goals-board"
+        role="region"
+        aria-label="Challenge category lanes"
+        tabIndex={0}
+      >
+        {data.categories
+          .filter((c) =>
+            visible.some(
+              (g) =>
+                (!g.parentId ||
+                  !data.challenges.some(
+                    (parent) => parent.id === g.parentId,
+                  )) &&
+                g.categoryId === c.id &&
+                matches.has(g.id),
+            ),
+          )
+          .map((c) => (
+            <section className="goal-lane" key={c.id}>
+              <h3>
+                {categoryPath(c)}{" "}
+                <span>
+                  {
+                    visible.filter(
+                      (g) =>
+                        (!g.parentId ||
+                          !data.challenges.some(
+                            (parent) => parent.id === g.parentId,
+                          )) &&
+                        g.categoryId === c.id,
+                    ).length
+                  }
+                </span>
+              </h3>
+              {visible
+                .filter(
+                  (g) =>
+                    g.categoryId === c.id &&
+                    (!g.parentId ||
+                      !data.challenges.some(
+                        (parent) => parent.id === g.parentId,
+                      )) &&
+                    matches.has(g.id),
+                )
+                .map((g) => challengeCard(g))}
+              {!archive && c.isActive && !c.archivedAt && (
+                <button
+                  className="inline-add-task"
+                  onClick={() => {
+                    setParent(null);
+                    setCategory(c.id);
+                    setEditing("new");
+                  }}
+                >
+                  <Plus size={16} />
+                  Add challenge
+                </button>
+              )}
+            </section>
+          ))}
+      </div>
+      {selected && !editing && (
+        <Drawer
+          popup
+          hideTitle
+          title={detail?.title || "Challenge"}
+          headerActions={
+            detail && !detail.archivedAt ? (
+              <details className="challenge-add-menu">
+                <summary
+                  className="icon-button"
+                  aria-label="Add to challenge"
+                  title="Add to challenge"
+                >
+                  <Plus size={20} />
+                </summary>
+                <div>
+                  {(
+                    [
+                      "task",
+                      "log",
+                      "journal",
+                      "goal",
+                      "coreLearning",
+                      "parent",
+                      "subchallenge",
+                    ] as const
+                  ).map((action) => (
+                    <button
+                      key={action}
+                      type="button"
+                      onClick={(e) => {
+                        e.currentTarget
+                          .closest("details")
+                          ?.removeAttribute("open");
+                        if (action === "subchallenge") {
+                          setParent(detail);
+                          setCategory(detail.categoryId);
+                          setEditing("new");
+                        } else if (
+                          action === "goal" ||
+                          action === "coreLearning" ||
+                          action === "parent"
+                        )
+                          setExtraFields((fields) => [...fields, action]);
+                        else setAdding(action);
+                      }}
+                    >
+                      {
+                        {
+                          task: "Link a task",
+                          log: "Add a log",
+                          journal: "Link a journal",
+                          goal: "Link a goal",
+                          coreLearning: "Add core learning",
+                          parent: "Set parent challenge",
+                          subchallenge: "Add a sub-challenge",
+                        }[action]
+                      }
+                    </button>
+                  ))}
+                </div>
+              </details>
+            ) : null
+          }
+          onClose={() => {
+            setSelected(null);
+            setDetail(null);
+          }}
+        >
+          {detail ? (
+            <>
+              {detail.parentId && (
+                <button
+                  className="text-button"
+                  onClick={() => setSelected(detail.parentId)}
+                >
+                  ←{" "}
+                  {data.challenges.find((c) => c.id === detail.parentId)
+                    ?.title || "Parent challenge"}
+                </button>
+              )}
+              {!detail.archivedAt ? (
+                <ChallengeForm
+                  key={detail.id}
+                  compact
+                  extraFields={extraFields}
+                  challenge={detail}
+                  parent={null}
+                  initialCategory={detail.categoryId}
+                  data={data}
+                  busy={busy}
+                  save={async (body) => {
+                    await act(body);
+                  }}
+                />
+              ) : (
+                <>
+                  <h2>{detail.title}</h2>
+                  <p>{detail.reason}</p>
+                  {detail.coreLearning && <p>{detail.coreLearning}</p>}
+                </>
+              )}
+              <div className="goal-actions">
+                <button
+                  className="button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (
+                      detail.archivedAt ||
+                      window.confirm(
+                        "Archive this challenge and its subchallenges?",
+                      )
+                    )
+                      void act({
+                        action: detail.archivedAt ? "restore" : "archive",
+                        id: detail.id,
+                        version: detail.version,
+                      });
+                  }}
+                >
+                  {detail.archivedAt ? "Restore" : "Archive"}
+                </button>
+                <button
+                  className="text-button"
+                  disabled={busy}
+                  onClick={async () => {
+                    if (
+                      window.confirm(
+                        "Permanently delete this challenge, its subchallenges and comments? Linked tasks will be kept.",
+                      )
+                    )
+                      if (
+                        await act({
+                          action: "delete",
+                          id: detail.id,
+                          version: detail.version,
+                        })
+                      ) {
+                        setSelected(null);
+                        setDetail(null);
+                      }
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+              {data.challenges.some((g) => g.parentId === detail.id) && (
+                <section className="subsection">
+                  <h3>Sub-challenges</h3>
+                  {data.challenges
+                    .filter((g) => g.parentId === detail.id)
+                    .map((g) => (
+                      <button
+                        className="goal-subgoal-link"
+                        key={g.id}
+                        onClick={() => setSelected(g.id)}
+                      >
+                        {g.title}
+                        <span>{g.archivedAt ? "Archived" : ""}</span>
+                      </button>
+                    ))}
+                </section>
+              )}
+              <ChallengeTasks
+                linking={adding === "task"}
+                onDone={() => setAdding(null)}
+                detail={detail}
+                busy={busy}
+                act={act}
+                onOpenTask={onOpenTask}
+              />
+              <ChallengeLogs
+                olderComments={olderComments}
+                key={`${detail.id}-${adding}`}
+                mode={adding === "log" || adding === "journal" ? adding : null}
+                onDone={() => setAdding(null)}
+                detail={detail}
+                busy={busy}
+                act={act}
+              />
 
-   {error&&<p role="alert" className="form-error">{error}</p>}
-  </>:<p>{error||'Loading challenge…'}</p>}</Drawer>}
-  {editing&&<Drawer popup title={editing==='new'?'New challenge':'Edit challenge'} onClose={()=>setEditing(null)}><ChallengeForm key={editing==='new'?`new-${parent?.id}-${category}`:editing.id} challenge={editing==='new'?null:editing} parent={parent} initialCategory={category} data={data} busy={busy} save={async body=>{if(await act(body)){setEditing(null);setParent(null)}}}/>{error&&<p role="alert" className="form-error">{error}</p>}</Drawer>}
- </section>;
+              {error && (
+                <p role="alert" className="form-error">
+                  {error}
+                </p>
+              )}
+            </>
+          ) : (
+            <p>{error || "Loading challenge…"}</p>
+          )}
+        </Drawer>
+      )}
+      {editing && (
+        <Drawer
+          popup
+          title={editing === "new" ? "New challenge" : "Edit challenge"}
+          onClose={() => setEditing(null)}
+        >
+          <ChallengeForm
+            key={
+              editing === "new" ? `new-${parent?.id}-${category}` : editing.id
+            }
+            challenge={editing === "new" ? null : editing}
+            parent={parent}
+            initialCategory={category}
+            data={data}
+            busy={busy}
+            save={async (body) => {
+              if (await act(body)) {
+                setEditing(null);
+                setParent(null);
+              }
+            }}
+          />
+          {error && (
+            <p role="alert" className="form-error">
+              {error}
+            </p>
+          )}
+        </Drawer>
+      )}
+    </section>
+  );
 }
-function ChallengeForm({challenge,parent,initialCategory,data,busy,save,compact=false,extraFields=[]}:{compact?:boolean;extraFields?:string[];challenge:Challenge|null;parent:Challenge|null;initialCategory:string;data:ChallengeData;busy:boolean;save:(body:Record<string,unknown>)=>Promise<void>}){
- const [category,setCategory]=useState(challenge?.categoryId||parent?.categoryId||initialCategory),[parentId,setParentId]=useState(challenge?.parentId||parent?.id||'');
- const [children,setChildren]=useState<{key:number;title:string;reason:string;categoryId:string}[]>([]);
- function patchChild(key:number,patch:Partial<(typeof children)[number]>){setChildren(rows=>rows.map(r=>r.key===key?{...r,...patch}:r));}
- const forbidden=new Set(challenge?[challenge.id]:[]);let changed=true;while(changed){changed=false;for(const g of data.challenges)if(g.parentId&&forbidden.has(g.parentId)&&!forbidden.has(g.id)){forbidden.add(g.id);changed=true;}}
- return <form className="form-stack" onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);void save({action:'save',...(challenge?{id:challenge.id,version:challenge.version}:{}),title:f.get('title'),reason:f.get('reason'),coreLearning:f.get('coreLearning')??challenge?.coreLearning??'',categoryId:category,parentId:parentId||null,goalId:f.has('goalId')?(f.get('goalId')||null):(challenge?.goalId||null),subchallenges:children.filter(c=>c.title.trim()).map(c=>({title:c.title,...(c.reason.trim()?{reason:c.reason}:{}),...(c.categoryId?{categoryId:c.categoryId}:{})}))})}}>
- <label className="field">Challenge<input name="title" defaultValue={challenge?.title} required maxLength={240} autoFocus/></label><label className="field">Why does this challenge matter?<textarea name="reason" defaultValue={challenge?.reason||parent?.reason} required maxLength={20000} rows={3}/></label>
- {(!compact||challenge?.coreLearning||extraFields.includes('coreLearning'))&&<label className="field">Core learning<textarea name="coreLearning" defaultValue={challenge?.coreLearning} maxLength={20000} rows={3}/></label>}
- <label className="field">Category / subcategory<select required value={category} onChange={e=>{setCategory(e.target.value)}}><option value="">Choose category</option>{data.categories.filter(c=>c.isActive&&!c.archivedAt).map(c=><option key={c.id} value={c.id}>{c.parentId?`${data.categories.find(p=>p.id===c.parentId)?.name} / `:''}{c.name}</option>)}</select></label>
- {(!compact||parentId||extraFields.includes('parent'))&&<label className="field">Parent challenge<select value={parentId} onChange={e=>setParentId(e.target.value)}><option value="">None — top-level challenge</option>{data.challenges.filter(g=>!g.archivedAt&&!forbidden.has(g.id)).map(g=><option key={g.id} value={g.id}>{g.title}</option>)}</select></label>}
- {(!compact||challenge?.goalId||parent?.goalId||extraFields.includes('goal'))&&<label className="field">Related goal<select name="goalId" defaultValue={challenge?challenge.goalId||'':parent?.goalId||''}><option value="">None</option>{data.goals.filter(g=>!g.archivedAt||g.id===challenge?.goalId).map(g=><option key={g.id} value={g.id}>{g.title}{g.archivedAt?' (Archived)':''}</option>)}</select></label>}
- {!compact&&<section className="inline-subgoals"><h3>Sub-challenges</h3>
- {challenge&&data.challenges.filter(g=>g.parentId===challenge.id&&!g.archivedAt).map(g=><div className="subgoal-existing" key={g.id}><span>{g.title}</span></div>)}
- {children.map((c,i)=><div className="subgoal-draft" key={c.key}><div className="subgoal-draft-row"><span aria-hidden="true">○</span><input aria-label={`Sub-challenge ${i+1} name`} placeholder="Sub-challenge name" value={c.title} maxLength={240} required onChange={e=>patchChild(c.key,{title:e.target.value})}/><button type="button" className="icon-button" aria-label={`Remove subchallenge ${i+1}`} onClick={()=>setChildren(rows=>rows.filter(r=>r.key!==c.key))}>×</button></div><details><summary>Customize</summary><label className="field">Reason (inherits parent when empty)<textarea value={c.reason} maxLength={20000} onChange={e=>patchChild(c.key,{reason:e.target.value})}/></label><label className="field">Category<select value={c.categoryId} onChange={e=>patchChild(c.key,{categoryId:e.target.value})}><option value="">Same as parent</option>{data.categories.filter(c=>c.isActive&&!c.archivedAt).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label></details></div>)}
- <button className="inline-add-task" type="button" disabled={busy||children.length>=50} onClick={()=>setChildren(rows=>[...rows,{key:Math.max(0,...rows.map(r=>r.key))+1,title:'',reason:'',categoryId:''}])}><Plus size={16}/>Add sub-challenge</button>
- </section>}<button className="button primary" disabled={busy}>{busy?'Saving…':'Save challenge'}</button>
- </form>;
+function ChallengeForm({
+  challenge,
+  parent,
+  initialCategory,
+  data,
+  busy,
+  save,
+  compact = false,
+  extraFields = [],
+}: {
+  compact?: boolean;
+  extraFields?: string[];
+  challenge: Challenge | null;
+  parent: Challenge | null;
+  initialCategory: string;
+  data: ChallengeData;
+  busy: boolean;
+  save: (body: Record<string, unknown>) => Promise<void>;
+}) {
+  const [category, setCategory] = useState(
+      challenge?.categoryId || parent?.categoryId || initialCategory,
+    ),
+    [parentId, setParentId] = useState(challenge?.parentId || parent?.id || "");
+  const [children, setChildren] = useState<
+    { key: number; title: string; reason: string; categoryId: string }[]
+  >([]);
+  function patchChild(key: number, patch: Partial<(typeof children)[number]>) {
+    setChildren((rows) =>
+      rows.map((r) => (r.key === key ? { ...r, ...patch } : r)),
+    );
+  }
+  const forbidden = new Set(challenge ? [challenge.id] : []);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const g of data.challenges)
+      if (g.parentId && forbidden.has(g.parentId) && !forbidden.has(g.id)) {
+        forbidden.add(g.id);
+        changed = true;
+      }
+  }
+  return (
+    <form
+      className="form-stack"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const f = new FormData(e.currentTarget);
+        void save({
+          action: "save",
+          ...(challenge
+            ? { id: challenge.id, version: challenge.version }
+            : {}),
+          title: f.get("title"),
+          reason: f.get("reason"),
+          coreLearning: f.get("coreLearning") ?? challenge?.coreLearning ?? "",
+          categoryId: category,
+          parentId: parentId || null,
+          goalId: f.has("goalId")
+            ? f.get("goalId") || null
+            : challenge?.goalId || null,
+          subchallenges: children
+            .filter((c) => c.title.trim())
+            .map((c) => ({
+              title: c.title,
+              ...(c.reason.trim() ? { reason: c.reason } : {}),
+              ...(c.categoryId ? { categoryId: c.categoryId } : {}),
+            })),
+        });
+      }}
+    >
+      <label className="field">
+        Challenge
+        <input
+          name="title"
+          defaultValue={challenge?.title}
+          required
+          maxLength={240}
+          autoFocus
+        />
+      </label>
+      <label className="field">
+        Why does this challenge matter?
+        <textarea
+          name="reason"
+          defaultValue={challenge?.reason || parent?.reason}
+          required
+          maxLength={20000}
+          rows={3}
+        />
+      </label>
+      {(!compact ||
+        challenge?.coreLearning ||
+        extraFields.includes("coreLearning")) && (
+        <label className="field">
+          Core learning
+          <textarea
+            name="coreLearning"
+            defaultValue={challenge?.coreLearning}
+            maxLength={20000}
+            rows={3}
+          />
+        </label>
+      )}
+      <label className="field">
+        Category / subcategory
+        <select
+          required
+          value={category}
+          onChange={(e) => {
+            setCategory(e.target.value);
+          }}
+        >
+          <option value="">Choose category</option>
+          {data.categories
+            .filter((c) => c.isActive && !c.archivedAt)
+            .map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.parentId
+                  ? `${data.categories.find((p) => p.id === c.parentId)?.name} / `
+                  : ""}
+                {c.name}
+              </option>
+            ))}
+        </select>
+      </label>
+      {(!compact || parentId || extraFields.includes("parent")) && (
+        <label className="field">
+          Parent challenge
+          <select
+            value={parentId}
+            onChange={(e) => setParentId(e.target.value)}
+          >
+            <option value="">None — top-level challenge</option>
+            {data.challenges
+              .filter((g) => !g.archivedAt && !forbidden.has(g.id))
+              .map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.title}
+                </option>
+              ))}
+          </select>
+        </label>
+      )}
+      {(!compact ||
+        challenge?.goalId ||
+        parent?.goalId ||
+        extraFields.includes("goal")) && (
+        <label className="field">
+          Related goal
+          <select
+            name="goalId"
+            defaultValue={
+              challenge ? challenge.goalId || "" : parent?.goalId || ""
+            }
+          >
+            <option value="">None</option>
+            {data.goals
+              .filter((g) => !g.archivedAt || g.id === challenge?.goalId)
+              .map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.title}
+                  {g.archivedAt ? " (Archived)" : ""}
+                </option>
+              ))}
+          </select>
+        </label>
+      )}
+      {!compact && (
+        <section className="inline-subgoals">
+          <h3>Sub-challenges</h3>
+          {challenge &&
+            data.challenges
+              .filter((g) => g.parentId === challenge.id && !g.archivedAt)
+              .map((g) => (
+                <div className="subgoal-existing" key={g.id}>
+                  <span>{g.title}</span>
+                </div>
+              ))}
+          {children.map((c, i) => (
+            <div className="subgoal-draft" key={c.key}>
+              <div className="subgoal-draft-row">
+                <span aria-hidden="true">○</span>
+                <input
+                  aria-label={`Sub-challenge ${i + 1} name`}
+                  placeholder="Sub-challenge name"
+                  value={c.title}
+                  maxLength={240}
+                  required
+                  onChange={(e) => patchChild(c.key, { title: e.target.value })}
+                />
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Remove subchallenge ${i + 1}`}
+                  onClick={() =>
+                    setChildren((rows) => rows.filter((r) => r.key !== c.key))
+                  }
+                >
+                  ×
+                </button>
+              </div>
+              <details>
+                <summary>Customize</summary>
+                <label className="field">
+                  Reason (inherits parent when empty)
+                  <textarea
+                    value={c.reason}
+                    maxLength={20000}
+                    onChange={(e) =>
+                      patchChild(c.key, { reason: e.target.value })
+                    }
+                  />
+                </label>
+                <label className="field">
+                  Category
+                  <select
+                    value={c.categoryId}
+                    onChange={(e) =>
+                      patchChild(c.key, { categoryId: e.target.value })
+                    }
+                  >
+                    <option value="">Same as parent</option>
+                    {data.categories
+                      .filter((c) => c.isActive && !c.archivedAt)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              </details>
+            </div>
+          ))}
+          <button
+            className="inline-add-task"
+            type="button"
+            disabled={busy || children.length >= 50}
+            onClick={() =>
+              setChildren((rows) => [
+                ...rows,
+                {
+                  key: Math.max(0, ...rows.map((r) => r.key)) + 1,
+                  title: "",
+                  reason: "",
+                  categoryId: "",
+                },
+              ])
+            }
+          >
+            <Plus size={16} />
+            Add sub-challenge
+          </button>
+        </section>
+      )}
+      <button className="button primary" disabled={busy}>
+        {busy ? "Saving…" : "Save challenge"}
+      </button>
+    </form>
+  );
 }
-function ChallengeTasks({detail,busy,act,onOpenTask,linking,onDone}:{linking:boolean;onDone:()=>void;detail:Detail;busy:boolean;act:(body:Record<string,unknown>)=>Promise<boolean>;onOpenTask?:(id:string)=>void}){
- const [filter,setFilter]=useState('all'),[query,setQuery]=useState(''),[results,setResults]=useState<ChallengeTask[]>([]),[error,setError]=useState('');
- useEffect(()=>{let live=true;setResults([]);if(query.trim()){const timer=setTimeout(()=>read<{tasks:ChallengeTask[]}>(`/api/challenges?search=${encodeURIComponent(query)}`).then(d=>{if(live)setResults(d.tasks)}).catch(e=>{if(live)setError(e.message)}),250);return()=>{live=false;clearTimeout(timer)}}return()=>{live=false}},[query]);
- const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
- function group(t:ChallengeTask){return t.status==='COMPLETED'?'completed':t.status==='CANCELLED'?'cancelled':(t.dueAt?new Date(t.dueAt)<new Date():t.plannedDate&&t.plannedDate.slice(0,10)<today)?'overdue':'pending';}
- if(!detail.tasks.length&&!linking)return null;
- return <section className="subsection">{detail.tasks.length>0&&<div className="section-toolbar"><h3>Related tasks</h3><select aria-label="Filter related tasks" value={filter} onChange={e=>setFilter(e.target.value)}>{['all','pending','overdue','completed','cancelled'].map(f=><option key={f} value={f}>{f[0].toUpperCase()+f.slice(1)} ({detail.tasks.filter(({task})=>f==='all'||group(task)===f).length})</option>)}</select></div>}
- {detail.tasks.filter(({task})=>filter==='all'||group(task)===filter).sort((a,b)=>(a.task.plannedDate||'9999').localeCompare(b.task.plannedDate||'9999')).map(({task})=><div className="goal-task-row" key={task.id}><button className="text-button" onClick={()=>onOpenTask?onOpenTask(task.id):window.location.assign(`/?view=tasks&task=${task.id}`)}>{task.title}</button><small>{group(task)}{task.archivedAt?' · Archived':''}</small>{!detail.archivedAt&&<button disabled={busy} className="text-button" onClick={()=>void act({action:'unlink',id:detail.id,taskId:task.id})}>Unlink</button>}</div>)}
- {!detail.archivedAt&&linking&&<div className="form-stack"><div className="section-toolbar"><h3>Link a task</h3><button className="text-button" onClick={onDone}>Cancel</button></div><input aria-label="Find task to link" placeholder="Search task names…" value={query} onChange={e=>{setQuery(e.target.value);setError('')}}/>{results.filter(t=>!detail.tasks.some(l=>l.task.id===t.id)).map(t=><button className="goal-subgoal-link" key={t.id} disabled={busy} onClick={async()=>{if(await act({action:'link',id:detail.id,taskId:t.id})){setQuery('');onDone()}}}>{t.title}<small>{t.plannedDate?.slice(0,10)||'Unscheduled'}</small></button>)}{error&&<p role="alert">{error}</p>}</div>}</section>;
+function ChallengeTasks({
+  detail,
+  busy,
+  act,
+  onOpenTask,
+  linking,
+  onDone,
+}: {
+  linking: boolean;
+  onDone: () => void;
+  detail: Detail;
+  busy: boolean;
+  act: (body: Record<string, unknown>) => Promise<boolean>;
+  onOpenTask?: (id: string) => void;
+}) {
+  const [filter, setFilter] = useState("all"),
+    [query, setQuery] = useState(""),
+    [results, setResults] = useState<ChallengeTask[]>([]),
+    [error, setError] = useState("");
+  useEffect(() => {
+    let live = true;
+    setResults([]);
+    if (query.trim()) {
+      const timer = setTimeout(
+        () =>
+          read<{ tasks: ChallengeTask[] }>(
+            `/api/challenges?search=${encodeURIComponent(query)}`,
+          )
+            .then((d) => {
+              if (live) setResults(d.tasks);
+            })
+            .catch((e) => {
+              if (live) setError(e.message);
+            }),
+        250,
+      );
+      return () => {
+        live = false;
+        clearTimeout(timer);
+      };
+    }
+    return () => {
+      live = false;
+    };
+  }, [query]);
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  function group(t: ChallengeTask) {
+    return t.status === "COMPLETED"
+      ? "completed"
+      : t.status === "CANCELLED"
+        ? "cancelled"
+        : (
+              t.dueAt
+                ? new Date(t.dueAt) < new Date()
+                : t.plannedDate && t.plannedDate.slice(0, 10) < today
+            )
+          ? "overdue"
+          : "pending";
+  }
+  if (!detail.tasks.length && !linking) return null;
+  return (
+    <section className="subsection">
+      {detail.tasks.length > 0 && (
+        <div className="section-toolbar">
+          <h3>Related tasks</h3>
+          <select
+            aria-label="Filter related tasks"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          >
+            {["all", "pending", "overdue", "completed", "cancelled"].map(
+              (f) => (
+                <option key={f} value={f}>
+                  {f[0].toUpperCase() + f.slice(1)} (
+                  {
+                    detail.tasks.filter(
+                      ({ task }) => f === "all" || group(task) === f,
+                    ).length
+                  }
+                  )
+                </option>
+              ),
+            )}
+          </select>
+        </div>
+      )}
+      {detail.tasks
+        .filter(({ task }) => filter === "all" || group(task) === filter)
+        .sort((a, b) =>
+          (a.task.plannedDate || "9999").localeCompare(
+            b.task.plannedDate || "9999",
+          ),
+        )
+        .map(({ task }) => (
+          <div className="goal-task-row" key={task.id}>
+            <button
+              className="text-button"
+              onClick={() =>
+                onOpenTask
+                  ? onOpenTask(task.id)
+                  : window.location.assign(`/?view=tasks&task=${task.id}`)
+              }
+            >
+              {task.title}
+            </button>
+            <small>
+              {group(task)}
+              {task.archivedAt ? " · Archived" : ""}
+            </small>
+            {!detail.archivedAt && (
+              <button
+                disabled={busy}
+                className="text-button"
+                onClick={() =>
+                  void act({ action: "unlink", id: detail.id, taskId: task.id })
+                }
+              >
+                Unlink
+              </button>
+            )}
+          </div>
+        ))}
+      {!detail.archivedAt && linking && (
+        <div className="form-stack">
+          <div className="section-toolbar">
+            <h3>Link a task</h3>
+            <button className="text-button" onClick={onDone}>
+              Cancel
+            </button>
+          </div>
+          <input
+            aria-label="Find task to link"
+            placeholder="Search task names…"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setError("");
+            }}
+          />
+          {results
+            .filter((t) => !detail.tasks.some((l) => l.task.id === t.id))
+            .map((t) => (
+              <button
+                className="goal-subgoal-link"
+                key={t.id}
+                disabled={busy}
+                onClick={async () => {
+                  if (
+                    await act({ action: "link", id: detail.id, taskId: t.id })
+                  ) {
+                    setQuery("");
+                    onDone();
+                  }
+                }}
+              >
+                {t.title}
+                <small>{t.plannedDate?.slice(0, 10) || "Unscheduled"}</small>
+              </button>
+            ))}
+          {error && <p role="alert">{error}</p>}
+        </div>
+      )}
+    </section>
+  );
 }
-export function TaskChallenges({taskId,showEditor=true}:{taskId:string;showEditor?:boolean}){
- const [data,setData]=useState<ChallengeData|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
- const refresh=useCallback(async()=>setData(await read<ChallengeData>(`/api/challenges?taskId=${taskId}`)),[taskId]);
- useEffect(()=>{void refresh().catch(e=>setError(e.message))},[refresh]);
- async function link(id:string,remove=false){if(busy)return;setBusy(true);setError('');try{await write({action:remove?'unlink':'link',id,taskId});await refresh()}catch(e){setError(e instanceof Error?e.message:'Could not link challenge.')}finally{setBusy(false)}}
- if(!showEditor&&!data?.links.length&&!error)return null;
- return <section className="subsection"><h3>Challenges</h3>{data?.links.map(l=>{const g=data.challenges.find(g=>g.id===l.challengeId);return <div className="goal-task-row" key={l.challengeId}><span>{g?.title}{g?.archivedAt?' · Archived':''}</span>{!g?.archivedAt&&<button className="text-button" disabled={busy} onClick={()=>void link(l.challengeId,true)}>Unlink</button>}</div>})}{showEditor&&<select aria-label="Link to challenge" value="" disabled={busy||!data} onChange={e=>{if(e.target.value)void link(e.target.value)}}><option value="">Link a challenge…</option>{data?.challenges.filter(g=>!g.archivedAt&&!data.links.some(l=>l.challengeId===g.id)).map(g=><option value={g.id} key={g.id}>{g.title}</option>)}</select>}{error&&<p role="alert">{error}</p>}</section>;
+export function TaskChallenges({
+  taskId,
+  showEditor = true,
+}: {
+  taskId: string;
+  showEditor?: boolean;
+}) {
+  const [data, setData] = useState<ChallengeData | null>(null),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
+  const refresh = useCallback(
+    async () =>
+      setData(await read<ChallengeData>(`/api/challenges?taskId=${taskId}`)),
+    [taskId],
+  );
+  useEffect(() => {
+    void refresh().catch((e) => setError(e.message));
+  }, [refresh]);
+  async function link(id: string, remove = false) {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await write({ action: remove ? "unlink" : "link", id, taskId });
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not link challenge.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (!showEditor && !data?.links.length && !error) return null;
+  return (
+    <section className="subsection">
+      <h3>Challenges</h3>
+      {data?.links.map((l) => {
+        const g = data.challenges.find((g) => g.id === l.challengeId);
+        return (
+          <div className="goal-task-row" key={l.challengeId}>
+            <span>
+              {g?.title}
+              {g?.archivedAt ? " · Archived" : ""}
+            </span>
+            {!g?.archivedAt && (
+              <button
+                className="text-button"
+                disabled={busy}
+                onClick={() => void link(l.challengeId, true)}
+              >
+                Unlink
+              </button>
+            )}
+          </div>
+        );
+      })}
+      {showEditor && (
+        <select
+          aria-label="Link to challenge"
+          value=""
+          disabled={busy || !data}
+          onChange={(e) => {
+            if (e.target.value) void link(e.target.value);
+          }}
+        >
+          <option value="">Link a challenge…</option>
+          {data?.challenges
+            .filter(
+              (g) =>
+                !g.archivedAt &&
+                !data.links.some((l) => l.challengeId === g.id),
+            )
+            .map((g) => (
+              <option value={g.id} key={g.id}>
+                {g.title}
+              </option>
+            ))}
+        </select>
+      )}
+      {error && <p role="alert">{error}</p>}
+    </section>
+  );
 }
 
-function ChallengeLogs({detail,busy,act,mode,onDone}:{mode:'log'|'journal'|null;onDone:()=>void;detail:Detail;busy:boolean;act:(body:Record<string,unknown>)=>Promise<boolean>}){
- const [query,setQuery]=useState(''),[journals,setJournals]=useState<{id:string;title:string|null}[]>([]),[journal,setJournal]=useState<{id:string;title:string|null}|null>(null),[error,setError]=useState('');
- useEffect(()=>{if(!mode)return;let live=true;const timer=setTimeout(()=>read<{journals:{id:string;title:string|null}[]}>(`/api/challenges?journalSearch=${encodeURIComponent(query)}`).then(d=>{if(live)setJournals(d.journals)}).catch(e=>{if(live)setError(e.message)}),250);return()=>{live=false;clearTimeout(timer)}},[query,mode]);
- if(!mode&&!detail.comments.length)return null;
- return <section className="subsection"><h3>{mode==='journal'?'Link a journal':'Logs'}</h3>{!detail.archivedAt&&mode&&<form className="form-stack" onSubmit={async e=>{e.preventDefault();const form=e.currentTarget,f=new FormData(form);if(await act({action:'comment',id:detail.id,version:detail.version,body:f.get('body')||(journal?`Linked journal: ${journal.title||'Untitled'}`:''),kind:f.get('kind'),journalId:journal?.id||null})){form.reset();setJournal(null);setQuery('');onDone()}}}>
- <label className="field">Type<select name="kind"><option value="CHECK_IN">Check-in</option><option value="COMMENT">Comment</option><option value="UPDATE">Update</option><option value="LEARNING">Core learning</option></select></label>
- <textarea name="body" aria-label="Log entry" placeholder={mode==='journal'?'Note (optional)…':'Record a check-in, update or learning…'} required={mode!=='journal'} maxLength={20000} rows={3}/>
- <details open={mode==='journal'?true:undefined}><summary>{journal?`Journal: ${journal.title||'Untitled'}`:'Link a journal (optional)'}</summary><input aria-label="Search journals" placeholder="Search journals…" value={query} onChange={e=>setQuery(e.target.value)}/>{journal&&<button type="button" className="text-button" onClick={()=>setJournal(null)}>Remove link</button>}{journals.map(j=><button type="button" className="goal-subgoal-link" key={j.id} onClick={()=>setJournal(j)}>{j.title||'Untitled'}{journal?.id===j.id?' ✓':''}</button>)}</details>
- <div className="goal-actions"><button className="button" disabled={busy||mode==='journal'&&!journal}>{mode==='journal'?'Link journal':'Post log'}</button><button className="text-button" type="button" onClick={onDone}>Cancel</button></div></form>}{error&&<p role="alert">{error}</p>}
- {detail.comments.map(c=><article className="goal-comment" key={c.id}><small>{c.kind.replaceAll('_',' ').toLowerCase()} · {new Date(c.createdAt).toLocaleString()}</small><p>{c.body}</p>{c.journal&&<details><summary>Journal · {c.journal.title||'Untitled'}</summary><p style={{whiteSpace:'pre-wrap'}}>{c.journal.content}</p></details>}</article>)}</section>;
+function ChallengeLogs({
+  detail,
+  busy,
+  act,
+  mode,
+  onDone,
+  olderComments,
+}: {
+  olderComments: () => Promise<void>;
+  mode: "log" | "journal" | null;
+  onDone: () => void;
+  detail: Detail;
+  busy: boolean;
+  act: (body: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [query, setQuery] = useState(""),
+    [journals, setJournals] = useState<{ id: string; title: string | null }[]>(
+      [],
+    ),
+    [journal, setJournal] = useState<{
+      id: string;
+      title: string | null;
+    } | null>(null),
+    [error, setError] = useState("");
+  useEffect(() => {
+    if (!mode) return;
+    let live = true;
+    const timer = setTimeout(
+      () =>
+        read<{ journals: { id: string; title: string | null }[] }>(
+          `/api/challenges?journalSearch=${encodeURIComponent(query)}`,
+        )
+          .then((d) => {
+            if (live) setJournals(d.journals);
+          })
+          .catch((e) => {
+            if (live) setError(e.message);
+          }),
+      250,
+    );
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [query, mode]);
+  if (!mode && !detail.comments.length) return null;
+  return (
+    <section className="subsection">
+      <h3>{mode === "journal" ? "Link a journal" : "Logs"}</h3>
+      {!detail.archivedAt && mode && (
+        <form
+          className="form-stack"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const form = e.currentTarget,
+              f = new FormData(form);
+            if (
+              await act({
+                action: "comment",
+                id: detail.id,
+                version: detail.version,
+                body:
+                  f.get("body") ||
+                  (journal
+                    ? `Linked journal: ${journal.title || "Untitled"}`
+                    : ""),
+                kind: f.get("kind"),
+                journalId: journal?.id || null,
+              })
+            ) {
+              form.reset();
+              setJournal(null);
+              setQuery("");
+              onDone();
+            }
+          }}
+        >
+          <label className="field">
+            Type
+            <select name="kind">
+              <option value="CHECK_IN">Check-in</option>
+              <option value="COMMENT">Comment</option>
+              <option value="UPDATE">Update</option>
+              <option value="LEARNING">Core learning</option>
+            </select>
+          </label>
+          <textarea
+            name="body"
+            aria-label="Log entry"
+            placeholder={
+              mode === "journal"
+                ? "Note (optional)…"
+                : "Record a check-in, update or learning…"
+            }
+            required={mode !== "journal"}
+            maxLength={20000}
+            rows={3}
+          />
+          <details open={mode === "journal" ? true : undefined}>
+            <summary>
+              {journal
+                ? `Journal: ${journal.title || "Untitled"}`
+                : "Link a journal (optional)"}
+            </summary>
+            <input
+              aria-label="Search journals"
+              placeholder="Search journals…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {journal && (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => setJournal(null)}
+              >
+                Remove link
+              </button>
+            )}
+            {journals.map((j) => (
+              <button
+                type="button"
+                className="goal-subgoal-link"
+                key={j.id}
+                onClick={() => setJournal(j)}
+              >
+                {j.title || "Untitled"}
+                {journal?.id === j.id ? " ✓" : ""}
+              </button>
+            ))}
+          </details>
+          <div className="goal-actions">
+            <button
+              className="button"
+              disabled={busy || (mode === "journal" && !journal)}
+            >
+              {mode === "journal" ? "Link journal" : "Post log"}
+            </button>
+            <button className="text-button" type="button" onClick={onDone}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+      {error && <p role="alert">{error}</p>}
+      {detail.comments.map((c) => (
+        <article className="goal-comment" key={c.id}>
+          <small>
+            {c.kind.replaceAll("_", " ").toLowerCase()} ·{" "}
+            {new Date(c.createdAt).toLocaleString()}
+          </small>
+          <p>{c.body}</p>
+          {c.journal && (
+            <details>
+              <summary>Journal · {c.journal.title || "Untitled"}</summary>
+              <p style={{ whiteSpace: "pre-wrap" }}>{c.journal.content}</p>
+            </details>
+          )}
+        </article>
+      ))}
+      {detail.nextCommentsCursor && (
+        <button
+          className="button"
+          disabled={busy}
+          onClick={() => void olderComments()}
+        >
+          Older comments
+        </button>
+      )}
+    </section>
+  );
 }

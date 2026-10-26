@@ -1,3 +1,5 @@
+import { resolveWorkCategoryIds, type WorkModeUser } from "./work-mode";
+import { categorySql } from "./work-mode-server";
 import { database } from "./db";
 import { ensureRecurringTasks } from "./recurrence-service";
 import { Prisma } from "@/generated/prisma/client";
@@ -8,7 +10,7 @@ export async function getWorkspace(
     id: string;
     name: string;
     timezone: string;
-  },
+  } & WorkModeUser,
   input?: string | Partial<WorkspaceQuery>,
 ) {
   const db = database();
@@ -17,6 +19,7 @@ export async function getWorkspace(
     typeof input === "string" ? { through: input } : input || {},
   );
   if (q.view === "task" && !q.task) throw new Error("Task required.");
+  let completedCursor = false;
   if (q.cursor) {
     const owner =
       q.view === "journal"
@@ -26,9 +29,10 @@ export async function getWorkspace(
           })
         : await db.task.findFirst({
             where: { id: q.cursor, userId },
-            select: { id: true },
+            select: { id: true, status: true },
           });
     if (!owner) throw new Error("Invalid cursor.");
+    completedCursor = "status" in owner && owner.status === "COMPLETED";
   }
   const today = dateKey(new Date(), user.timezone);
   const through = q.through || addDays(today, 6);
@@ -37,11 +41,49 @@ export async function getWorkspace(
     throw new Error("Choose at most 31 days.");
   if (["today", "category", "projects", "week", "tasks"].includes(q.view))
     await ensureRecurringTasks(userId, today, through, from);
-  const categoryRows = await db.category.findMany({
+  const allCategoryRows = await db.category.findMany({
     where: { userId },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   });
-  const filters: Prisma.TaskWhereInput[] = [{ userId }];
+  const allowed = resolveWorkCategoryIds(user, allCategoryRows);
+  const categoryRows =
+    allowed === null
+      ? allCategoryRows
+      : allCategoryRows.filter((c) => allowed.includes(c.id));
+  const workMode = {
+    enabled: !!user.workModeEnabled,
+    categoryIds: user.workCategoryIds || [],
+  };
+  const taskScope =
+    allowed === null ? {} : { primaryCategoryId: { in: allowed } };
+  const journalScope =
+    allowed === null
+      ? {}
+      : { categories: { some: { categoryId: { in: allowed } } } };
+  if (["library", "categories"].includes(q.view)) {
+    const [tags, entities] = await Promise.all([
+      db.tag.findMany({ where: { userId }, orderBy: { name: "asc" } }),
+      db.entity.findMany({ where: { userId }, orderBy: { name: "asc" } }),
+    ]);
+    return JSON.parse(
+      JSON.stringify({
+        user: { name: user.name, timezone: user.timezone },
+        today,
+        workMode,
+        categories: categoryRows,
+        tags,
+        entities,
+        tasks: [],
+        periods: [],
+        templates: [],
+        journals: [],
+        events: [],
+        reminders: [],
+        page: { nextCursor: null, view: q.view, from, through },
+      }),
+    ) as Workspace;
+  }
+  const filters: Prisma.TaskWhereInput[] = [{ userId }, taskScope];
   if (q.view === "task")
     filters.push({ id: q.task || "00000000-0000-0000-0000-000000000000" });
   else {
@@ -66,7 +108,10 @@ export async function getWorkspace(
     if (q.tag) filters.push({ tags: { some: { tagId: q.tag, userId } } });
     if (q.entity)
       filters.push({ entities: { some: { entityId: q.entity, userId } } });
-    if ((q.view === "today" && q.dashboard === "plan") || ["category", "projects"].includes(q.view))
+    if (
+      (q.view === "today" && q.dashboard === "plan") ||
+      ["category", "projects"].includes(q.view)
+    )
       filters.push({
         OR: [
           { plannedDate: { gte: new Date(from), lte: new Date(through) } },
@@ -119,7 +164,13 @@ export async function getWorkspace(
     )
       filters.push({ id: "00000000-0000-0000-0000-000000000000" });
   }
-  if (q.view === "today" && q.dashboard === "plan" && !q.category && !q.entity && !q.tag) {
+  if (
+    q.view === "today" &&
+    q.dashboard === "plan" &&
+    !q.category &&
+    !q.entity &&
+    !q.tag
+  ) {
     const next = await db.$queryRaw<{ id: string }[]>(
       Prisma.sql`SELECT DISTINCT ON (series_id) id FROM tasks WHERE user_id=${userId}::uuid AND series_id IS NOT NULL AND archived_at IS NULL AND status NOT IN ('COMPLETED','CANCELLED') ORDER BY series_id,planned_date ASC NULLS LAST,id`,
     );
@@ -132,39 +183,40 @@ export async function getWorkspace(
     });
   }
   if (q.view === "today" && q.dashboard !== "plan")
-    filters.push({ status: { notIn: ["COMPLETED", "CANCELLED"] } });
-  if (q.view === "today" && q.dashboard === "execute" && !q.category && !q.entity && !q.tag)
+    filters.push({
+      status: {
+        notIn:
+          q.dashboard === "execute"
+            ? ["CANCELLED"]
+            : ["COMPLETED", "CANCELLED"],
+      },
+    });
+  if (
+    q.view === "today" &&
+    q.dashboard === "execute" &&
+    !q.category &&
+    !q.entity &&
+    !q.tag
+  )
     filters.push({ plannedDate: new Date(today) });
   if (q.view === "today" && q.dashboard === "manage")
-    filters.push({ plannedDate: { gte: new Date(from), lte: new Date(through) } });
+    filters.push({
+      plannedDate: { gte: new Date(from), lte: new Date(through) },
+    });
   const pageSize = q.view === "task" ? 1 : 100;
   // In-app delivery is access-driven, not a background promise. Claim and log atomically.
-  await db.$transaction(async (tx) => {
-    const due = await tx.reminder.findMany({
-      where: {
-        userId,
-        channel: "IN_APP",
-        status: "PENDING",
-        scheduledFor: { lte: new Date() },
-      },
-      take: 100,
-    });
-    for (const r of due) {
-      const claimed = await tx.reminder.updateMany({
-        where: { id: r.id, status: "PENDING" },
-        data: { status: "DELIVERED" },
-      });
-      if (claimed.count)
-        await tx.reminderDelivery.create({
-          data: {
-            userId,
-            reminderId: r.id,
-            status: "DELIVERED",
-            provider: "in-app",
-          },
-        });
-    }
-  });
+  if (q.view === "today" && !q.cursor) {
+    await db.$executeRaw`
+      WITH due AS (
+        SELECT id FROM reminders WHERE user_id=${userId}::uuid
+          AND channel='IN_APP' AND status='PENDING' AND scheduled_for<=now()
+        ORDER BY scheduled_for LIMIT 100 FOR UPDATE SKIP LOCKED
+      ), claimed AS (
+        UPDATE reminders SET status='DELIVERED', updated_at=now()
+        WHERE id IN (SELECT id FROM due) RETURNING id,user_id
+      ) INSERT INTO reminder_deliveries(id,user_id,reminder_id,status,provider,updated_at)
+        SELECT gen_random_uuid(),user_id,id,'DELIVERED','in-app',now() FROM claimed`;
+  }
   const [
     tasks,
     categories,
@@ -176,48 +228,80 @@ export async function getWorkspace(
     events,
     reminders,
   ] = await Promise.all([
-    db.task.findMany({
-      where: { AND: filters },
-      orderBy: q.view === "today" && q.dashboard !== "plan"
-        ? [{ plannedDate: { sort: "asc", nulls: "first" } }, { id: "asc" }]
-        : [{ createdAt: "desc" }, { id: "desc" }],
-      take: pageSize + 1,
-      ...(q.cursor ? { cursor: { id: q.cursor }, skip: 1 } : {}),
-      include: {
-        series: {
-          select: {
-            id: true,
-            unit: true,
-            interval: true,
-            startsOn: true,
-            endsOn: true,
-            active: true,
-            version: true,
+    (async () => {
+      const args = {
+        where: { AND: filters },
+        orderBy:
+          q.view === "today" && q.dashboard !== "plan"
+            ? [
+                ...(q.sort !== "plannedDate"
+                  ? [
+                      {
+                        [q.sort]: q.direction,
+                      } as Prisma.TaskOrderByWithRelationInput,
+                    ]
+                  : []),
+                { plannedDate: { sort: "asc", nulls: "first" } },
+                { id: "asc" },
+              ]
+            : [{ createdAt: "desc" }, { id: "desc" }],
+        take: pageSize + 1,
+        ...(q.cursor ? { cursor: { id: q.cursor }, skip: 1 } : {}),
+        include: {
+          series: {
+            select: {
+              id: true,
+              unit: true,
+              interval: true,
+              startsOn: true,
+              endsOn: true,
+              active: true,
+              version: true,
+            },
           },
-        },
-        tags: true,
-        entities: true,
-        periods: true,
-        effort:
-          q.view === "task"
-            ? { take: 100, orderBy: [{ occurredOn: "desc" }, { id: "desc" }] }
-            : {
-                where: {
-                  occurredOn: { gte: new Date(from), lte: new Date(through) },
+          tags: true,
+          entities: true,
+          periods: true,
+          effort:
+            q.view === "task"
+              ? { take: 100, orderBy: [{ occurredOn: "desc" }, { id: "desc" }] }
+              : {
+                  where: {
+                    occurredOn: { gte: new Date(from), lte: new Date(through) },
+                  },
+                  take: 100,
+                  orderBy: { occurredOn: "desc" },
                 },
-                take: 100,
-                orderBy: { occurredOn: "desc" },
+          fieldValues: false,
+          relationsFrom: {
+            include: {
+              target: {
+                select: { title: true, plannedDate: true, seriesId: true },
               },
-        fieldValues: false,
-        relationsFrom: {
-          include: {
-            target: {
-              select: { title: true, plannedDate: true, seriesId: true },
             },
           },
         },
-      },
-    }),
+      } satisfies Prisma.TaskFindManyArgs;
+      if (q.view !== "today" || q.dashboard !== "execute")
+        return db.task.findMany(args);
+      // Page open tasks before completed tasks, without a completion timestamp
+      // overriding the selected priority order within either group.
+      const open = completedCursor
+        ? []
+        : await db.task.findMany({
+            ...args,
+            where: { AND: [...filters, { status: { not: "COMPLETED" } }] },
+          });
+      if (open.length === pageSize + 1) return open;
+      const completed = await db.task.findMany({
+        ...args,
+        where: { AND: [...filters, { status: "COMPLETED" }] },
+        take: pageSize + 1 - open.length,
+        cursor: completedCursor && q.cursor ? { id: q.cursor } : undefined,
+        skip: completedCursor ? 1 : undefined,
+      });
+      return [...open, ...completed];
+    })(),
     Promise.resolve(categoryRows),
     db.tag.findMany({ where: { userId }, orderBy: { name: "asc" } }),
     db.entity.findMany({ where: { userId }, orderBy: { name: "asc" } }),
@@ -229,6 +313,7 @@ export async function getWorkspace(
     db.journalEntry.findMany({
       where: {
         userId,
+        ...journalScope,
         ...(q.view === "journal"
           ? {
               archivedAt: null,
@@ -271,7 +356,13 @@ export async function getWorkspace(
       take: 100,
     }),
     db.reminder.findMany({
-      where: { userId, status: "DELIVERED" },
+      where: {
+        userId,
+        status: "DELIVERED",
+        ...(allowed === null
+          ? {}
+          : { OR: [{ task: taskScope }, { journal: journalScope }] }),
+      },
       take: 100,
       orderBy: { scheduledFor: "asc" },
       include: { deliveries: true },
@@ -298,16 +389,18 @@ export async function getWorkspace(
           take: 1000,
         })
       : events;
-  const sidebarCounts = q.view === "today" ? await db.$queryRaw<
-    { kind: string; id: string; pending: number; upcoming: number }[]
-  >(Prisma.sql`
+  const sidebarCounts =
+    q.view === "today"
+      ? await db.$queryRaw<
+          { kind: string; id: string; pending: number; upcoming: number }[]
+        >(Prisma.sql`
     WITH RECURSIVE category_tree(root, id) AS (
       SELECT id, id FROM categories WHERE user_id=${userId}::uuid
       UNION
       SELECT tree.root, c.id FROM category_tree tree JOIN categories c ON c.parent_id=tree.id WHERE c.user_id=${userId}::uuid
     ), open_tasks AS (
       SELECT id, primary_category_id, planned_date FROM tasks
-      WHERE user_id=${userId}::uuid AND archived_at IS NULL AND status NOT IN ('COMPLETED','CANCELLED')
+      WHERE user_id=${userId}::uuid AND ${categorySql("primary_category_id", allowed)} AND archived_at IS NULL AND status NOT IN ('COMPLETED','CANCELLED')
     ), memberships AS (
       SELECT 'all' AS kind, '' AS scope_id, id, planned_date FROM open_tasks
       UNION
@@ -320,10 +413,12 @@ export async function getWorkspace(
       (COUNT(*) FILTER (WHERE planned_date IS NULL OR planned_date <= ${today}::date))::int AS pending,
       (COUNT(*) FILTER (WHERE planned_date > ${today}::date))::int AS upcoming
     FROM memberships GROUP BY kind, scope_id
-  `) : undefined;
+  `)
+      : undefined;
   return JSON.parse(
     JSON.stringify({
       sidebarCounts,
+      workMode,
       user: { name: user.name, timezone: user.timezone },
       today: dateKey(new Date(), user.timezone),
       tasks: tasks.slice(0, pageSize).map((t) => ({
@@ -335,6 +430,8 @@ export async function getWorkspace(
           0,
       })),
       page: {
+        sort: q.sort,
+        direction: q.direction,
         nextCursor:
           q.view === "journal"
             ? journals.length > 100
@@ -423,8 +520,6 @@ export type Task = {
   totalEffortMinutes?: number;
   id: string;
 
-
-
   seriesId: string | null;
   recurrenceDate: string | null;
   isException: boolean;
@@ -497,13 +592,21 @@ export type Reminder = {
   status: string;
 };
 export type Workspace = {
+  workMode?: { enabled: boolean; categoryIds: string[] };
   page?: {
+    sort?: "plannedDate" | "urgency" | "importance";
+    direction?: "asc" | "desc";
     nextCursor: string | null;
     view: string;
     from: string;
     through: string;
   };
-  sidebarCounts?: { kind: string; id: string; pending: number; upcoming: number }[];
+  sidebarCounts?: {
+    kind: string;
+    id: string;
+    pending: number;
+    upcoming: number;
+  }[];
   user: { name: string; timezone: string };
   today: string;
   tasks: Task[];

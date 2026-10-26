@@ -77,3 +77,55 @@ The production browser check created a three-day daily series with a blue fitnes
 Task selectors now list each series once and require an explicit dated occurrence before linking. The Tasks view collapses matching occurrences into expandable groups; filters run before grouping, and completion still targets one occurrence. Equal titles from unrelated series/tasks remain separate. No data migration or user task edits were needed.
 
 26 automated checks passed, including the grouping identity/order regression, plus the production webpack build. A separate browser tab verified the single series option, dated occurrence selector, grouped list, delayed keyboard-focus tooltip and Escape dismissal. Pointer hover uses the same 3,000ms timer; moving away, scrolling, resizing or clicking cancels it. Preview: `grouped-tasks-tooltips.jpg`.
+
+
+## Reliability verification — 25 October 2026
+
+This section supersedes the older test inventory for the reliability changes.
+
+- Node 24.22.1 production build and TypeScript checks passed.
+- 21 unit/isolated SQL constraint tests passed.
+- Six existing Prisma workflow integration tests passed on a disposable PGlite socket database.
+- API regression suite passed: authenticated category creation; five concurrent requests
+  using one retry key create exactly one row; origin rejection; timed and untimed history;
+  reminder claim/delivery; repeated goal/challenge reordering; comment and learning pagination.
+- Local concurrency observation: five duplicate category requests completed in 28–29 ms.
+  This is a local functional check, not a Vercel or Neon benchmark.
+- In-app browser: created a category, saw the success message and row, and verified the row
+  after reloading. Tested the original draft-navigation guard; full automated browser suite
+  could not launch Chrome (environment returned SIGABRT/EPERM). A browser dialog subsequently
+  stalled in-app automation; final draft restoration remains covered by code review and the
+  checked-in browser regression, not claimed as an executed browser pass.
+- Production logs were read without changing production data. Available recent logs showed
+  connection SSL-mode warnings, not a confirmed cause of the slow saves.
+- No production migration or deployment was performed during these checks.
+
+Run `npm run build`, then `npm run test:isolated` on a machine with a working Playwright
+browser. `node scripts/test-isolated.mjs --api-only` runs the isolated database/API portion.
+
+
+## Task feedback release — 26 October 2026
+
+- Node 24 production build and type checking passed.
+- 23 unit/SQL constraint tests, nine database workflow tests, and the HTTP regression suite passed.
+- Project links were checked through creation, task editing, unlinking/relinking, and owner isolation.
+- Execute paging was checked with 105 open tasks plus a completed task, keeping completed records after open tasks and priority ordering across the cursor boundary.
+- Tomorrow scheduling checks cover undated work, stale writes, shifted due dates, daylight-saving changes, and preservation of other repeat occurrences.
+- In-app browser: linked Product launch in a task popup, saved, closed/reopened, and verified that the checkbox remained selected. The urgency heading toggled to highest first. Completed work appeared below open work with strike-through and read-only priority dials. The bottom-right Move to tomorrow action closed the popup and moved the task into upcoming work.
+- Browser verification used a separate disposable database; no cloud application records were created for testing.
+
+## Local Work mode changes — 26 October 2026
+
+- Work mode configuration and blue theme remain local; nothing from this change was pushed or deployed.
+- Production build and TypeScript checks passed using `npm run build -- --webpack`. The default Turbopack build could not bind an internal worker port in this execution environment.
+- 20 unit tests, nine isolated database workflow tests, and two HTTP regression tests passed. Work mode coverage includes persisted category configuration, descendants, foreign-category rejection, empty selection, server pagination, linked content, history and reports.
+- Login-hour boundaries are tested at 09:59:59, 10:00:00, 18:59:59 and 19:00:00 in Asia/Kolkata, plus New York winter and summer timezone behavior. The HTTP test checks the successful login's stored mode against the account timezone before manually disabling it for fixture setup.
+- In-app browser verified the unified Execute / Manage / Plan, funnel and briefcase toolbar; manual switching; scoped work tasks; category filter expansion and close control; and Manage view. Configuration persistence and inherited child selection were also checked in the disposable local browser workspace.
+- The additive Work mode migration was applied to the local preview database only. Cloud deployment and migration are intentionally pending.
+
+## Production release preparation — 26 October 2026
+
+- Fixed the desktop sidebar inheriting the legacy header's `flex-wrap`, navigation ordering, and `flex-basis: 100%` rules at widths below 1200px. Desktop navigation now uses its own column layout; page content can shrink within its container.
+- Cloud and local desktop checks both reported 16px root/body fonts, 260px sidebars, visual viewport scale 1, and no horizontal overflow at the inspected widths. The exact user-reported scale change was not reproduced at those widths.
+- Webpack production build/type checks and all 31 unit/database/HTTP tests passed after the responsive fix.
+- Vercel releases now run the existing safe migration runner before building, keeping production credentials on Vercel. The historical clean-start reset is marked applied rather than executed. No production secrets were downloaded locally.

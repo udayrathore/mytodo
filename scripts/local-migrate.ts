@@ -7,7 +7,7 @@ if (
   !process.env.DATABASE_URL?.includes("127.0.0.1:54329")
 )
   throw new Error(
-    "Only for the isolated local PGlite development database. Use prisma migrate deploy on Neon.",
+    "Only for the isolated local PGlite development database. Use npm run db:migrate on Neon.",
   );
 const db = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
 await db.query(
@@ -29,7 +29,7 @@ for (const name of readdirSync("prisma/migrations")
   }
   await db.query("BEGIN");
   try {
-    await db.query(sql);
+    if (name !== "202610240009_clean_start") await db.query(sql);
     await db.query(
       "INSERT INTO local_migrations(name,checksum) VALUES($1,$2)",
       [name, checksum],

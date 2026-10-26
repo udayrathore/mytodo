@@ -1,3 +1,4 @@
+import { workCategoryIds, categorySql } from "@/lib/work-mode-server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
@@ -28,6 +29,12 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: "Invalid cursor" }, { status: 400 });
       }
     }
+    const allowed = await workCategoryIds(user);
+    const taskScope = categorySql("t.primary_category_id", allowed);
+    const journalScope =
+      allowed === null
+        ? Prisma.sql`TRUE`
+        : Prisma.sql`EXISTS (SELECT 1 FROM journal_category_links l WHERE l.journal_entry_id=j.id AND l.user_id=j.user_id AND ${categorySql("l.category_id", allowed)})`;
     const taskFilter = q.task
       ? Prisma.sql`AND task_id=${q.task}::uuid`
       : Prisma.empty;
@@ -51,12 +58,12 @@ export async function GET(request: Request) {
           replace(initcap(e.event_type::text),'_',' ') AS title,
           t.title || COALESCE(' · '||(e.from_value->>'status')||' → '||(e.to_value->>'status'), ' · '||(e.to_value->>'status'), '') || COALESCE(' · '||(e.to_value->>'note'),'') AS text, e.task_id AS "taskId"
         FROM task_events e JOIN tasks t ON t.id=e.task_id AND t.user_id=e.user_id
-        WHERE e.user_id=${user.id}::uuid ${taskFilter} AND NOT (e.event_type='EFFORT_RECORDED' AND COALESCE(e.to_value ? 'effortEntryId',false))
+        WHERE e.user_id=${user.id}::uuid AND ${taskScope} ${taskFilter} AND NOT (e.event_type='EFFORT_RECORDED' AND e.to_value->>'effortEntryId' IS NOT NULL)
         UNION ALL
         SELECT 'effort:'||e.id, e.occurred_on::timestamp AT TIME ZONE ${user.timezone},true,'Action',e.minutes||'m · '||t.title,COALESCE(e.note,''),e.task_id
-        FROM task_effort_entries e JOIN tasks t ON t.id=e.task_id AND t.user_id=e.user_id WHERE e.user_id=${user.id}::uuid ${taskFilter}
+        FROM task_effort_entries e JOIN tasks t ON t.id=e.task_id AND t.user_id=e.user_id WHERE e.user_id=${user.id}::uuid AND ${taskScope} ${taskFilter}
         UNION ALL
-        SELECT 'journal:'||j.id,j.occurred_at,false,'Observation',COALESCE(j.title,'Journal entry'),j.content,NULL::uuid FROM journal_entries j WHERE j.user_id=${user.id}::uuid AND j.archived_at IS NULL AND ${!q.task}
+        SELECT 'journal:'||j.id,j.occurred_at,false,'Observation',COALESCE(j.title,'Journal entry'),j.content,NULL::uuid FROM journal_entries j WHERE j.user_id=${user.id}::uuid AND ${journalScope} AND j.archived_at IS NULL AND ${!q.task}
       ) SELECT *,to_char(at AT TIME ZONE ${user.timezone},'YYYY-MM-DD') AS day FROM entries
       WHERE (${q.filter === "All"} OR kind=${q.filter})
       ${cursor ? Prisma.sql`AND (at,id) < (${cursor.at}::timestamptz,${cursor.id})` : Prisma.empty}

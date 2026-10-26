@@ -3172,3 +3172,102 @@ svg text { font-size: 16px; }
 .dial-value { stroke: #e66d60; }
 .task-dial > span { font-size: 16px; font-variant-numeric: tabular-nums; }
 @media (max-width: 480px) { .task-basics-row { gap: 8px; } .task-priority-dials { gap: 8px; } }
+
+/* Execute priority columns and the task detail action. */
+.execute-sort-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 12px 0; color: #aaa; font-size: 13px; }
+.execute-priority-sort { display: grid; grid-template-columns: repeat(2, 80px); gap: 8px; flex-shrink: 0; }
+.execute-priority-sort button { font-size: 12px; text-align: center; padding: 5px 0; }
+.execute-priority-sort button[aria-pressed="true"] { color: #ef8e82; }
+.task-priority-readonly { display: grid; grid-template-columns: repeat(2, 80px); gap: 8px; align-items: center; justify-items: center; margin-left: auto; }
+.task-dial.task-dial-static { width: 36px; height: 36px; cursor: default; touch-action: auto; }
+.task-dial-static > span { font-size: 13px; }
+.execute-list .dashboard-task-main { flex-wrap: wrap; }
+.execute-list .dashboard-task-title { min-width: 100px; }
+.execute-overdue { width: 100%; margin-left: 29px; font-size: 12px; }
+.execute-completed { margin-top: 24px; }
+.task-project-links { margin: 0; padding: 10px 12px; border: 1px solid #414141; border-radius: 8px; }
+.task-project-links legend { padding: 0 4px; font-size: 14px; }
+.task-detail-footer { display: flex; justify-content: flex-end; position: sticky; bottom: -24px; background: #262626; padding: 16px 0 0; margin-top: 20px; border-top: 1px solid #414141; z-index: 2; }
+@media (max-width: 480px) {
+  .execute-priority-sort, .task-priority-readonly { grid-template-columns: repeat(2, 62px); gap: 4px; }
+  .execute-priority-sort button { font-size: 11px; }
+  .task-detail-footer { bottom: -16px; }
+}
+
+/* Compact collection filters and the single tools menu. */
+.app-popover { position: relative; }
+.app-popover > summary { display: flex; align-items: center; justify-content: center; gap: 9px; list-style: none; cursor: pointer; border-radius: 8px; }
+.app-popover > summary::-webkit-details-marker { display: none; }
+.app-popover > summary:focus-visible { outline: 2px solid #ef8e82; outline-offset: 3px; }
+.app-popover-panel { position: absolute; top: calc(100% + 8px); right: 0; z-index: 60; width: min(310px, calc(100vw - 40px)); max-height: min(70dvh, 600px); overflow: auto; padding: 12px; border: 1px solid #484848; border-radius: 12px; background: #292929; box-shadow: 0 12px 40px #0006; }
+.bottom-menu { width: 100%; }
+.bottom-menu > summary { justify-content: flex-start; }
+.bottom-menu .app-popover-panel { top: auto; bottom: calc(100% + 9px); left: 0; right: auto; padding: 7px; }
+.collection-filter-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.task-filter-menu > summary { width: 38px; height: 38px; color: #ccc; border: 1px solid #444; background: #292929; }
+.task-filter-menu[open] > summary { color: #ff9c90; border-color: #b86e64; }
+.task-filter-menu .task-sidebar { position: static; inset: auto; width: auto; max-height: none; padding: 0; border: 0; overflow: visible; background: transparent; }
+.task-filter-menu .task-sidebar button { width: 100%; }
+.task-filter-menu .task-sidebar details { padding: 7px 0; }
+.task-filter-menu .task-sidebar summary { padding: 5px 0; }
+.filter-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-bottom: 10px; border-bottom: 1px solid #444; margin-bottom: 4px; }
+.filter-panel-heading strong { font-size: 14px; }
+.active-filter-chip { display: flex; align-items: center; gap: 9px; padding: 5px 10px; border: 1px solid #6b4944; border-radius: 16px; background: #3a2927; color: #ffc3bb; font-size: 13px; }
+.task-browser.compact-filters { display: block; }
+.workspace-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 28px; }
+.workspace-toolbar .view-toggle, .workspace-toolbar .work-mode-toggle, .workspace-toolbar .task-filter-menu { flex-shrink: 0; }
+.workspace-toolbar .active-filter-chip { max-width: 180px; overflow: hidden; }
+.work-mode-toggle { width: 40px; height: 40px; border: 1px solid #454545; background: #292929; border-radius: 10px; }
+.work-mode-toggle[aria-pressed="true"] { background: #25547a; border-color: #77bdee; color: #d6efff; }
+.tracker-shell main#main { padding-top: 24px; }
+.work-mode-status { display: flex; align-items: center; gap: 8px; color: #9ed6ff; font-size: 13px; margin-bottom: 12px; }
+.work-mode-status .text-button { margin-left: auto; font-size: 12px; }
+.work-mode-settings { max-width: 700px; }
+.work-mode-settings h1 { font-size: 27px; margin-bottom: 10px; }
+.work-mode-settings > p { margin-bottom: 12px; }
+.work-mode-settings fieldset { border: 1px solid #454545; border-radius: 10px; padding: 12px; margin: 20px 0; }
+.work-mode-settings legend { padding: 0 6px; }
+.work-category-option { display: flex; align-items: flex-start; gap: 12px; padding: 11px 5px; border-bottom: 1px solid #ffffff0c; cursor: pointer; }
+.work-category-option input { margin-top: 6px; accent-color: #73bffa; }
+.work-category-option small { display: block; font-size: 12px; color: #aaa; }
+
+/* Work mode: blue tones throughout the workspace. */
+.app-shell[data-mode="work"] { --line: #344c63; --paper: #152331; --white: #1b3042; --green: #79c4ff; --ink: #e0edf6; --muted: #a8bed0; background: #152331; color: #e0edf6; }
+[data-mode="work"] .main-shell, [data-mode="work"] #main { background: #152331; color: #e0edf6; }
+[data-mode="work"] .tracker-topbar, [data-mode="work"] .sidebar-settings { background: #10202e; border-color: #344c63; }
+[data-mode="work"] .top-navigation > button.active, [data-mode="work"] .sidebar-settings button.active { background: #244660; color: #b7e3ff; }
+[data-mode="work"] .sidebar-add, [data-mode="work"] .text-button, [data-mode="work"] .inline-add-task { color: #8fcfff; }
+[data-mode="work"] .button.primary, [data-mode="work"] .floating-add, [data-mode="work"] .todo-check[aria-checked="true"] { background: #4b92c6; border-color: #6fb6e9; color: #fff; }
+[data-mode="work"] .app-popover-panel, [data-mode="work"] .task-filter-menu > summary, [data-mode="work"] .task-popup, [data-mode="work"] .drawer, [data-mode="work"] .task-detail-footer { background: #1a3043; border-color: #47627a; color: #e0edf6; }
+[data-mode="work"] .dial-value { stroke: #7ac8ff; }
+[data-mode="work"] .view-toggle, [data-mode="work"] .task-project-links, [data-mode="work"] .kanban-lane { background: #1c3042; border-color: #3a536b; }
+[data-mode="work"] .view-toggle button[aria-pressed="true"], [data-mode="work"] .dashboard-task:hover, [data-mode="work"] .sidebar-settings button:hover, [data-mode="work"] .sidebar-settings summary:hover { background: #2a475f; }
+[data-mode="work"] input, [data-mode="work"] textarea, [data-mode="work"] select { background: #15283a; color: #e0edf6; border-color: #4c647a; accent-color: #7ac8ff; }
+[data-mode="work"] .active-filter-chip { background: #223f57; border-color: #5d88a8; color: #c3e5ff; }
+[data-mode="work"] .execute-priority-sort button[aria-pressed="true"] { color: #99d5ff; }
+@media (max-width: 700px) {
+  .tracker-shell main#main { padding-top: 24px; }
+  .sidebar-settings { width: auto; margin-top: 0; border-top: 0; }
+  .bottom-menu .app-popover-panel { top: calc(100% + 8px); bottom: auto; }
+}
+
+@media (max-width: 700px) {
+  .bottom-menu .app-popover-panel { position: fixed; top: 76px; left: 12px; right: 12px; width: auto; max-height: calc(100dvh - 100px); }
+  .task-filter-menu .app-popover-panel { position: fixed; top: auto; bottom: 12px; left: 12px; right: 12px; width: auto; max-height: 75dvh; }
+}
+
+@media (max-width: 700px) {
+ .workspace-toolbar { gap: 6px; }
+ .workspace-toolbar .view-toggle button { padding: 8px 9px; font-size: 12px; }
+ .workspace-toolbar .active-filter-chip { display: none; }
+}
+
+/* Keep the desktop sidebar out of the legacy wrapping top-navigation layout. */
+@media (min-width: 701px) {
+  .tracker-topbar { flex-wrap: nowrap; }
+  .tracker-topbar .top-navigation { order: 0; flex: 0 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+  .tracker-topbar > .sidebar-profile, .tracker-topbar > .sidebar-add, .tracker-topbar > .sidebar-settings { flex-shrink: 0; }
+}
+.tracker-shell .main-shell { min-width: 0; }
+.tracker-shell main#main { width: 100%; min-width: 0; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }

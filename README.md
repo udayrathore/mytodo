@@ -2,7 +2,7 @@
 
 A private workspace for **intention → action → observation**, built from the uploaded specification and the approved “Show Schema” conversation. Actual application data lives in PostgreSQL; there is no browser-storage demo or public bypass.
 
-## What works
+## Original feature inventory (see release notes below for subsequent changes)
 
 - Fast capture with `N` shortcut; daily intentions and a separate undated inbox.
 - Task editing, completion/reopening, deferral, cancellation, archival/restoration, search, priority/status/category/tag/entity filters.
@@ -195,5 +195,45 @@ TypeScript checking completed during implementation. Functional, integration, br
 ### Templates retired
 Templates and custom-field editing are no longer exposed or loaded by the app. New tasks and recurring occurrences do not use templates. Historical template tables and values are retained for data preservation; no destructive migration is required.
 
-### Single-user login code
-Login uses a four-digit code. Generate a bootstrap hash with `npm run auth:password` and set `OWNER_PASSWORD_HASH` privately. The owner email remains the account identifier; it is not entered at login. Change the code under More → Login & recovery using the current code. The database stores the replacement hash; changing it invalidates other sessions. Recovery email is stored as account metadata only; recovery emails require a configured mail provider and are not yet enabled. Never commit the initial code or credential hashes.
+### Single-user credentials
+Existing four-digit codes remain valid. New credentials use passwords of at least 14 characters. Generate a bootstrap hash with `npm run auth:password` and set `OWNER_PASSWORD_HASH` privately. The owner email remains the account identifier; it is not entered at login. Upgrade your code under Login & recovery using your current credential. The database stores the replacement hash; changing it invalidates other sessions. Recovery email is stored as account metadata only; recovery emails require a configured mail provider and are not yet enabled. Never commit the initial code or credential hashes.
+
+
+## Reliability release — 25 October 2026
+
+Builds no longer run database migrations. Before deploying this release, run
+`npm run db:migrate` against the intended database using its private direct URL.
+This wrapper marks the retired `202610240009_clean_start` reset as applied without
+executing it if it is still pending. Already applied migration files/checksums are
+unchanged. **Do not run raw `prisma migrate deploy` or execute the historical reset
+SQL manually.** The local migration runner also skips that reset. No application
+records are deleted by this release.
+
+The additive `202610250001_command_receipts` migration is required before this code
+serves writes. It stores owner-scoped idempotency receipts so retries of a committed
+command return the original result. Keep these receipts when backing up/restoring.
+
+Category/tag/entity saves return the saved row directly; the UI updates without a
+workspace refetch. Other command saves acknowledge the commit separately from
+refresh failures. Library/category reads avoid recurrence and reminder work.
+Recurrence generation uses bulk inserts and avoids acquiring the owner lock for
+already materialized windows. Owner locking still serializes domain mutations;
+transactions use read committed isolation and retry serialization conflicts.
+
+`npm run test:isolated` starts a disposable in-memory PostgreSQL-compatible database
+and production server on local ports 54339/3107, exercises command/API regressions,
+and runs browser tests. Run `npm run build` first. No existing database or credentials
+are changed. `node scripts/test-isolated.mjs --manual` keeps that disposable app open
+for manual browser checks after API tests. Use Node 24 as specified in `.nvmrc`.
+
+Production latency still depends on database and function region alignment and cold
+starts. Command responses include `Server-Timing`; failures log command type, error
+code, and elapsed time without task text, journal content, or credentials.
+
+## Work mode
+
+The briefcase icon shares the top toolbar with Execute / Manage / Plan and the task filter. The bottom Menu contains Configure Work mode, where selected categories (and their subcategories) define the work view. Work mode uses a blue theme and scopes tasks, goals, challenges, learnings, journals, history, and reports. An empty category selection intentionally shows no work content.
+
+Successful sign-ins default to Work mode from 10:00 inclusive until 19:00 exclusive in the account timezone, and personal mode at other times. The default applies only at sign-in; manual switching remains available throughout the session. Category choices persist across sign-ins. Apply the additive `202610260001_work_mode` migration before running this version against an existing database.
+
+Vercel release builds run `scripts/safe-migrate.mjs` before compiling so the deployed schema matches the app. This runner skips execution of the retired clean-start reset, fails on unresolved migration failures, and applies pending migrations. Plain `npm run build` remains a build-only check.

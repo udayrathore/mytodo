@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { randomBytes } from "node:crypto";
 import { database } from "./db";
 import { tokenHash, verifyPassword, hashPassword } from "./password";
+import { isWorkLoginTime } from "./work-mode";
+import { ownerDisplayName } from "./owner-name";
 const COOKIE = "pis_session";
 export class AuthError extends Error {}
 export function configured() {
@@ -36,7 +38,7 @@ export async function currentUser() {
     session.user.email !== process.env.OWNER_EMAIL?.toLowerCase()
   )
     return null;
-  return session.user;
+  return { ...session.user, name: ownerDisplayName(session.user.name) };
 }
 export async function requireUser() {
   const user = await currentUser();
@@ -53,20 +55,26 @@ export async function login(email: string, password: string) {
     throw new AuthError("Complete environment setup before signing in.");
   const db = database();
   await limitCodeAttempts();
-  const owner = await db.user.findUnique({ where: { email: process.env.OWNER_EMAIL!.toLowerCase() } });
+  const owner = await db.user.findUnique({
+    where: { email: process.env.OWNER_EMAIL!.toLowerCase() },
+  });
   const valid = await verifyPassword(
     password,
     owner?.loginCodeHash || process.env.OWNER_PASSWORD_HASH!,
   );
   if (!valid || email.toLowerCase() !== process.env.OWNER_EMAIL!.toLowerCase())
-    throw new AuthError("Login code is incorrect.");
+    throw new AuthError("Login code or password is incorrect.");
+  const timezone =
+    owner?.timezone || process.env.APP_TIMEZONE || "Asia/Kolkata";
+  const workModeEnabled = isWorkLoginTime(new Date(), timezone);
   const user = await db.user.upsert({
     where: { email: email.toLowerCase() },
-    update: {},
+    update: { name: ownerDisplayName(owner?.name), workModeEnabled },
     create: {
       email: email.toLowerCase(),
-      name: process.env.OWNER_NAME || "You",
-      timezone: process.env.APP_TIMEZONE || "Asia/Kolkata",
+      name: ownerDisplayName(owner?.name),
+      timezone,
+      workModeEnabled,
     },
   });
   const token = randomBytes(32).toString("hex");
@@ -109,19 +117,32 @@ export async function limitCodeAttempts() {
  RETURNING attempts`;
   if (rows[0].attempts > 10)
     throw new AuthError("Too many sign-in attempts. Try again in 15 minutes.");
-
 }
 export async function changeLoginCode(current: string, next: string) {
   const user = await requireUser();
   await limitCodeAttempts();
   const cookie = (await cookies()).get(COOKIE)?.value;
   const nextHash = await hashPassword(next);
-  await database().$transaction(async tx => {
+  await database().$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM users WHERE id = ${user.id}::uuid FOR UPDATE`;
     const owner = await tx.user.findUniqueOrThrow({ where: { id: user.id } });
-    if (!await verifyPassword(current, owner.loginCodeHash || process.env.OWNER_PASSWORD_HASH!)) throw new AuthError("Current code is incorrect.");
-    await tx.user.update({ where: { id: user.id }, data: { loginCodeHash: nextHash } });
-    await tx.session.deleteMany({ where: { userId: user.id, ...(cookie ? { tokenHash: { not: tokenHash(cookie) } } : {}) } });
+    if (
+      !(await verifyPassword(
+        current,
+        owner.loginCodeHash || process.env.OWNER_PASSWORD_HASH!,
+      ))
+    )
+      throw new AuthError("Current code or password is incorrect.");
+    await tx.user.update({
+      where: { id: user.id },
+      data: { loginCodeHash: nextHash },
+    });
+    await tx.session.deleteMany({
+      where: {
+        userId: user.id,
+        ...(cookie ? { tokenHash: { not: tokenHash(cookie) } } : {}),
+      },
+    });
     await tx.loginBucket.deleteMany({ where: { key: "owner" } });
   });
 }

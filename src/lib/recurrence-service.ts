@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Prisma, type TaskSeries } from "@/generated/prisma/client";
 import { database } from "./db";
 import { asDate, addDays, dateKey, DomainError } from "./domain";
@@ -11,8 +12,6 @@ type Blueprint = {
   urgency: number;
   importance: number;
   estimatedMinutes: number | null;
-
-
 
   dueOffsetMs: number | null;
   tags: string[];
@@ -32,10 +31,8 @@ export async function taskBlueprint(tx: Tx, id: string): Promise<Blueprint> {
       primaryCategoryId: t.primaryCategoryId,
       templateId: null,
       urgency: t.urgency,
-              importance: t.importance,
+      importance: t.importance,
       estimatedMinutes: t.estimatedMinutes,
-
-
 
       dueOffsetMs:
         t.dueAt && t.plannedDate
@@ -65,7 +62,7 @@ export async function generateSeries(
       : start);
   if (from > through) return;
   const b = series.blueprint as unknown as Blueprint;
-  for (const date of occurrenceDates(
+  const dates = occurrenceDates(
     start,
     {
       unit: series.unit as RepeatRule["unit"],
@@ -74,83 +71,97 @@ export async function generateSeries(
     },
     from,
     through,
-  )) {
-    const existing = await tx.task.findUnique({
+  );
+  if (dates.length) {
+    const existing = await tx.task.findMany({
       where: {
-        seriesId_recurrenceDate: {
-          seriesId: series.id,
-          recurrenceDate: asDate(date)!,
-        },
-      },
-    });
-    if (existing) {
-      if (existing.scheduleRemoved && !existing.isException) {
-        await tx.task.update({
-          where: { id: existing.id },
-          data: {
-            archivedAt: null,
-            scheduleRemoved: false,
-            version: { increment: 1 },
-          },
-        });
-        await tx.taskEvent.create({
-          data: {
-            userId: series.userId,
-            taskId: existing.id,
-            eventType: "ARCHIVED",
-            toValue: { archived: false, reason: "Series schedule restored" },
-          },
-        });
-      }
-      continue;
-    }
-    const task = await tx.task.create({
-      data: {
-        userId: series.userId,
         seriesId: series.id,
-        recurrenceDate: asDate(date),
-        plannedDate: asDate(date),
-        status: "PLANNED",
-        title: b.title,
-        description: b.description,
-        primaryCategoryId: b.primaryCategoryId,
-
-        urgency: b.urgency,
-              importance: b.importance,
-        estimatedMinutes: b.estimatedMinutes,
-
-
-
-        dueAt:
-          b.dueOffsetMs === null
-            ? null
-            : new Date(asDate(date)!.getTime() + b.dueOffsetMs),
+        recurrenceDate: { in: dates.map((date) => asDate(date)!) },
+      },
+      select: {
+        id: true,
+        recurrenceDate: true,
+        scheduleRemoved: true,
+        isException: true,
       },
     });
-    if (b.tags.length)
-      await tx.taskTag.createMany({
-        data: b.tags.map((tagId) => ({
+    const byDate = new Map(
+      existing.map((task) => [day(task.recurrenceDate!), task]),
+    );
+    const restore = existing.filter(
+      (task) => task.scheduleRemoved && !task.isException,
+    );
+    const fresh = dates
+      .filter((date) => !byDate.has(date))
+      .map((date) => ({ id: randomUUID(), date }));
+    if (restore.length) {
+      await tx.task.updateMany({
+        where: { id: { in: restore.map((t) => t.id) } },
+        data: {
+          archivedAt: null,
+          scheduleRemoved: false,
+          version: { increment: 1 },
+        },
+      });
+      await tx.taskEvent.createMany({
+        data: restore.map((t) => ({
           userId: series.userId,
-          taskId: task.id,
-          tagId,
+          taskId: t.id,
+          eventType: "ARCHIVED" as const,
+          toValue: { archived: false, reason: "Series schedule restored" },
         })),
       });
-    if (b.entities.length)
-      await tx.taskEntityLink.createMany({
-        data: b.entities.map((e) => ({
+    }
+    if (fresh.length) {
+      await tx.task.createMany({
+        data: fresh.map(({ id, date }) => ({
+          id,
           userId: series.userId,
-          taskId: task.id,
-          ...e,
+          seriesId: series.id,
+          recurrenceDate: asDate(date),
+          plannedDate: asDate(date),
+          status: "PLANNED" as const,
+          title: b.title,
+          description: b.description,
+          primaryCategoryId: b.primaryCategoryId,
+          urgency: b.urgency,
+          importance: b.importance,
+          estimatedMinutes: b.estimatedMinutes,
+          dueAt:
+            b.dueOffsetMs == null
+              ? null
+              : new Date(asDate(date)!.getTime() + b.dueOffsetMs),
         })),
       });
-    await tx.taskEvent.create({
-      data: {
-        userId: series.userId,
-        taskId: task.id,
-        eventType: "CREATED",
-        toValue: { title: b.title, plannedDate: date, seriesId: series.id },
-      },
-    });
+      if (b.tags.length)
+        await tx.taskTag.createMany({
+          data: fresh.flatMap((t) =>
+            b.tags.map((tagId) => ({
+              userId: series.userId,
+              taskId: t.id,
+              tagId,
+            })),
+          ),
+        });
+      if (b.entities.length)
+        await tx.taskEntityLink.createMany({
+          data: fresh.flatMap((t) =>
+            b.entities.map((e) => ({
+              userId: series.userId,
+              taskId: t.id,
+              ...e,
+            })),
+          ),
+        });
+      await tx.taskEvent.createMany({
+        data: fresh.map((t) => ({
+          userId: series.userId,
+          taskId: t.id,
+          eventType: "CREATED" as const,
+          toValue: { title: b.title, plannedDate: t.date, seriesId: series.id },
+        })),
+      });
+    }
   }
   if (!windowStart)
     await tx.taskSeries.update({
@@ -226,6 +237,25 @@ export async function ensureRecurringTasks(
     );
   const horizon = through || addDays(today, 6);
   const windowStart = from || addDays(horizon, -6);
+  const pending = await database().taskSeries.findFirst({
+    where: {
+      userId,
+      active: true,
+      startsOn: { lte: asDate(horizon)! },
+      AND: [
+        { OR: [{ endsOn: null }, { endsOn: { gte: asDate(windowStart)! } }] },
+        {
+          OR: [
+            { generatedThrough: null },
+            { generatedThrough: { lt: asDate(horizon)! } },
+          ],
+        },
+      ],
+    },
+    select: { id: true },
+  });
+  if (!pending) return;
+  // Recheck inside the lock: another request may have generated the same window.
   // A per-owner row lock serializes concurrent tab refreshes before generation.
   await database().$transaction(
     async (tx) => {

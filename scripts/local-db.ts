@@ -20,7 +20,7 @@ if (!existsSync(".env")) {
   const url = "postgresql://postgres:postgres@127.0.0.1:54329/postgres";
   writeFileSync(
     ".env",
-    `DATABASE_URL="${url}"\nDIRECT_URL="${url}"\nAPP_URL="http://localhost:3000"\nOWNER_EMAIL="owner@example.test"\nOWNER_NAME="Alex"\nAPP_TIMEZONE="Asia/Kolkata"\nLOCAL_PGLITE="1"\nOWNER_PASSWORD_HASH="${await hashPassword(password)}"\n`,
+    `DATABASE_URL="${url}"\nDIRECT_URL="${url}"\nAPP_URL="http://localhost:3000"\nOWNER_EMAIL="owner@example.test"\nOWNER_NAME="Uday"\nAPP_TIMEZONE="Asia/Kolkata"\nLOCAL_PGLITE="1"\nOWNER_PASSWORD_HASH="${await hashPassword(password)}"\n`,
     { mode: 0o600 },
   );
   writeFileSync(

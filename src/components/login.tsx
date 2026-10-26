@@ -33,17 +33,15 @@ export function Login({ configured }: { configured: boolean }) {
           {configured ? (
             <form onSubmit={submit} className="form-stack">
               <label className="field">
-                <span>4-digit login code</span>
+                <span>Login code or password</span>
                 <input
                   autoComplete="current-password"
                   type="password"
                   name="password"
                   required
                   autoFocus
-                  inputMode="numeric"
-                  pattern="[0-9]{4}"
                   minLength={4}
-                  maxLength={4}
+                  maxLength={256}
                 />
               </label>
               {error && (

@@ -7,7 +7,7 @@ const user = await db.user.upsert({
   where: { email: process.env.OWNER_EMAIL.toLowerCase() },
   create: {
     email: process.env.OWNER_EMAIL.toLowerCase(),
-    name: process.env.OWNER_NAME || "You",
+    name: process.env.OWNER_NAME || "Uday",
     timezone: process.env.APP_TIMEZONE || "Asia/Kolkata",
   },
   update: {},

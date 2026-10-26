@@ -32,9 +32,6 @@ export const dateOnly = z.iso.date();
 const nullableId = id.nullable().default(null);
 const ids = z.array(id).max(50).default([]);
 const taskFields = {
-
-
-
   title,
   description: text.default(""),
   primaryCategoryId: nullableId,
@@ -54,9 +51,28 @@ const taskFields = {
   relationshipType: z.string().trim().min(1).max(80).default("CONTRIBUTES_TO"),
 };
 export const commandSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("master.remove"), id: z.uuid(), kind: z.literal("tag") }),
-  z.object({ type: z.literal("collection.settings"), id: z.uuid(), kind: z.enum(["category", "project"]), status: z.enum(["ACTIVE", "CLOSED", "ARCHIVED"]).optional(), imageData: z.string().max(65000).regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/).nullable().optional() }),
-  z.object({ type: z.literal("task.comment"), id: z.uuid(), body: z.string().trim().min(1).max(5000) }),
+  z.object({
+    type: z.literal("master.remove"),
+    id: z.uuid(),
+    kind: z.literal("tag"),
+  }),
+  z.object({
+    type: z.literal("collection.settings"),
+    id: z.uuid(),
+    kind: z.enum(["category", "project"]),
+    status: z.enum(["ACTIVE", "CLOSED", "ARCHIVED"]).optional(),
+    imageData: z
+      .string()
+      .max(65000)
+      .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/)
+      .nullable()
+      .optional(),
+  }),
+  z.object({
+    type: z.literal("task.comment"),
+    id: z.uuid(),
+    body: z.string().trim().min(1).max(5000),
+  }),
   z.object({
     type: z.literal("project.save"),
     id: id.optional(),
@@ -69,6 +85,11 @@ export const commandSchema = z.discriminatedUnion("type", [
     id,
     taskId: id,
     linked: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("task.tomorrow"),
+    id,
+    version: z.number().int().min(0),
   }),
   z.object({
     type: z.literal("task.schedule"),
@@ -101,8 +122,6 @@ export const commandSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("activity.log"),
 
-
-
     taskId: id.nullable().default(null),
     title: title.optional(),
     primaryCategoryId: id,
@@ -113,9 +132,18 @@ export const commandSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("task.create"),
-    goalIds: ids, challengeIds: ids,
+    goalIds: ids,
+    challengeIds: ids,
     relatedTaskId: nullableId,
-    relationType: z.enum(["RELATED_TO", "SUBTASK_OF", "DEPENDS_ON", "BLOCKS", "FOLLOW_UP_TO"]).default("RELATED_TO"),
+    relationType: z
+      .enum([
+        "RELATED_TO",
+        "SUBTASK_OF",
+        "DEPENDS_ON",
+        "BLOCKS",
+        "FOLLOW_UP_TO",
+      ])
+      .default("RELATED_TO"),
     initialComment: z.string().trim().max(5000).default(""),
     reminderAt: z.iso.datetime({ offset: true }).nullable().default(null),
     repeat: repeatRule.nullable().default(null),
@@ -218,7 +246,6 @@ export const commandSchema = z.discriminatedUnion("type", [
     scheduledFor: z.iso.datetime({ offset: true }),
   }),
   z.object({ type: z.literal("reminder.dismiss"), id }),
-
 ]);
 export type Command = z.infer<typeof commandSchema>;
 export function dateKey(

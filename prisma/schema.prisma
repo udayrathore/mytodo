@@ -92,6 +92,9 @@ enum DeliveryStatus {
 }
 
 model User {
+  workModeEnabled Boolean @default(false) @map("work_mode_enabled")
+  workCategoryIds String[] @default([]) @map("work_category_ids") @db.Uuid
+  commandReceipts CommandReceipt[]
   loginCodeHash String? @map("login_code_hash")
   recoveryEmail String? @map("recovery_email")
   id                         String                @id @default(uuid()) @db.Uuid
@@ -705,4 +708,16 @@ model LearningUpdate {
  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
  @@index([userId,learningId,createdAt])
  @@map("learning_updates")
+}
+
+model CommandReceipt {
+  userId String @map("user_id") @db.Uuid
+  key String @db.Uuid
+  payloadHash String @map("payload_hash")
+  result Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([userId, key])
+  @@index([createdAt], map: "command_receipts_created_idx")
+  @@map("command_receipts")
 }
