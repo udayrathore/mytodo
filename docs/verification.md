@@ -129,3 +129,5 @@ browser. `node scripts/test-isolated.mjs --api-only` runs the isolated database/
 - Cloud and local desktop checks both reported 16px root/body fonts, 260px sidebars, visual viewport scale 1, and no horizontal overflow at the inspected widths. The exact user-reported scale change was not reproduced at those widths.
 - Webpack production build/type checks and all 31 unit/database/HTTP tests passed after the responsive fix.
 - Vercel releases now run the existing safe migration runner before building, keeping production credentials on Vercel. The historical clean-start reset is marked applied rather than executed. No production secrets were downloaded locally.
+
+- After clarification that the desktop UI felt too large, compact desktop density was added: 14px navigation/task text, a 224px sidebar, tighter task rows and toolbar spacing, and narrower goal lanes. The local browser confirmed a 14px workspace, 224px sidebar and no page-width overflow. Mobile sizing and browser zoom remain unchanged.

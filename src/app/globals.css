@@ -3271,3 +3271,28 @@ svg text { font-size: 16px; }
 .tracker-shell .main-shell { min-width: 0; }
 .tracker-shell main#main { width: 100%; min-width: 0; }
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+/* Compact desktop density without changing the browser's zoom level. */
+@media (min-width: 701px) {
+  .tracker-shell { --sidebar: 224px; font-size: 14px; }
+  .tracker-shell .main-shell { margin-left: var(--sidebar); }
+  .tracker-topbar { width: var(--sidebar); padding: 20px 12px; gap: 10px; }
+  .tracker-shell main#main { padding: 24px 36px 80px; }
+  .sidebar-profile strong, .tracker-topbar .top-navigation > button, .sidebar-settings button, .sidebar-settings summary { font-size: 14px; }
+  .profile-avatar { width: 26px; height: 26px; }
+  .top-navigation > button, .sidebar-settings button, .sidebar-settings summary { padding: 8px 10px; }
+  .workspace-toolbar { gap: 8px; margin-bottom: 22px; }
+  .workspace-toolbar .view-toggle { padding: 3px; }
+  .workspace-toolbar .view-toggle button { font-size: 13px; padding: 7px 13px; }
+  .work-mode-toggle, .task-filter-menu > summary { width: 36px; height: 36px; }
+  .execute-heading { margin-bottom: 24px; }
+  .execute-heading h1, .tracker-shell .page-heading h1 { font-size: 26px; }
+  .execute-heading p, .dashboard-task-title, .task-sidebar summary { font-size: 14px; }
+  .execute-list .dashboard-task { padding: 12px 0; }
+  .execute-list h2 { font-size: 14px; }
+  .inline-add-task { padding: 12px 0; }
+  .goal-lane { flex-basis: 280px; }
+  .goal-card-open { padding: 13px; gap: 8px; }
+  .goal-reason, .goal-card-meta, .goal-progress { font-size: 13px; }
+  .floating-add { width: 48px; height: 48px; right: 24px; bottom: 24px; }
+}
