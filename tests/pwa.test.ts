@@ -159,6 +159,9 @@ test("PWA caches actual immutable Next 16 Turbopack assets and excludes dev resp
   // These filenames come from this app's production Next 16 build.
   for (const path of [
     "/_next/static/chunks/3i06ah6_4t5-8.js",
+    "/_next/static/immutable/chunks/0e98jfd6g6-e0.js",
+    "/_next/static/immutable/chunks/2vdpbn5mq-9ru.css",
+    "/_next/static/immutable/media/8d697b304b401681-s.woff2",
     "/_next/static/chunks/turbopack-2c3mg3r-05n1w.js",
     "/_next/static/chunks/2vdpbn5mq-9ru.css",
     "/_next/static/chunks/123-abcdef123456.js",

@@ -1,6 +1,6 @@
 /* Only public build assets and the generic offline screen belong in these caches. */
 const CACHE_PREFIX = "tasks-public-";
-const CACHE_NAME = `${CACHE_PREFIX}2026-10-30-2`;
+const CACHE_NAME = `${CACHE_PREFIX}2026-10-30-3`;
 const OFFLINE_URL = "/offline.html";
 const PUBLIC_FILES = [
   OFFLINE_URL,
@@ -54,17 +54,22 @@ self.addEventListener("message", (event) => {
 
 function publicAsset(url) {
   if (PUBLIC_FILES.includes(url.pathname)) return true;
+  // Vercel serves the same build assets under its immutable namespace.
+  const pathname = url.pathname.replace(
+    /^\/_next\/static\/immutable\//,
+    "/_next/static/",
+  );
   // Next 16 Turbopack uses 13-character base36 hashes, including '_' and '-'.
   // Also support Webpack's hexadecimal chunk/CSS names and hashed font files.
   return (
     /^\/_next\/static\/chunks\/(?:turbopack-)?[a-z0-9_-]{13}\.(?:js|css)$/i.test(
-      url.pathname,
+      pathname,
     ) ||
     /^\/_next\/static\/(?:chunks|css)\/(?:[a-z0-9_.-]+\/)*[a-z0-9_.-]*[a-f0-9]{8,}\.(?:js|css)$/i.test(
-      url.pathname,
+      pathname,
     ) ||
     /^\/_next\/static\/media\/[a-z0-9_.-]*[a-f0-9]{8,}(?:-s)?\.(?:woff2?|ttf)$/i.test(
-      url.pathname,
+      pathname,
     )
   );
 }
