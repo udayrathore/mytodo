@@ -70,10 +70,6 @@ export async function GET(request: Request) {
     const categoryScope =
       allowed === null ? {} : { categoryId: { in: allowed } };
     const categoryRecords = allowed === null ? {} : { id: { in: allowed } };
-    const journalScope =
-      allowed === null
-        ? {}
-        : { categories: { some: { categoryId: { in: allowed } } } };
     if (q.has("search"))
       return NextResponse.json({
         tasks: await db.task.findMany({
@@ -113,7 +109,7 @@ export async function GET(request: Request) {
             ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
           },
           tasks: {
-            where: { task: taskScope },
+            where: { task: { ...taskScope, plannedDate: { not: null } } },
             include: { task: { select: taskSelect } },
           },
         },

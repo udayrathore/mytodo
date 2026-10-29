@@ -1,0 +1,90 @@
+.settings {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid #414141;
+}
+.settings h2 {
+  margin-bottom: 18px;
+}
+.setting {
+  padding: 14px 0;
+}
+.setting + .setting {
+  border-top: 1px solid #414141;
+}
+.setting h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+.setting p {
+  margin: 7px 0 12px;
+  line-height: 1.5;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.status {
+  color: #b6d5bf;
+  font-size: 13px;
+}
+.update {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #303030;
+  color: #eee;
+  border: 1px solid #666;
+  border-radius: 11px;
+  box-shadow: 0 6px 30px #0006;
+  font-size: 13px;
+}
+.update > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-right: 8px;
+}
+.update span {
+  color: #ccc;
+  font-size: 12px;
+}
+.update button {
+  padding: 7px 10px;
+  border: 1px solid #777;
+  border-radius: 6px;
+  background: #3c3c3c;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+}
+.update button:focus-visible {
+  outline: 2px solid #ccc;
+  outline-offset: 2px;
+}
+:global([data-mode="work"]) .setting + .setting,
+:global([data-mode="work"]) .settings {
+  border-color: #40576d;
+}
+@media (max-width: 600px) {
+  .update {
+    justify-content: flex-start;
+    bottom: 12px;
+  }
+  .update > div {
+    flex: 0 0 100%;
+    margin-right: 0;
+  }
+}

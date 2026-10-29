@@ -1,18 +1,47 @@
 "use client";
 import { mayLeaveEditor } from "./navigation-guard";
-import { postCommand, applyCommandPatch } from "@/lib/command-client";
+import {
+  postCommand,
+  applyCommandPatch,
+  type CommandResult,
+} from "@/lib/command-client";
+import dynamic from "next/dynamic";
 import { useState, useEffect, useCallback } from "react";
 import type { Workspace } from "@/lib/workspace";
-import { Library } from "./library";
-import { Projects } from "./projects";
-import { JournalView } from "./journal";
-import { TaskDetail } from "./task-detail";
-import { TaskForm } from "./task-form";
 import { Drawer, human } from "./ui";
 import { useRemote } from "./use-remote";
-import { Learnings } from "./learnings";
-import { Challenges } from "./challenges";
-import { Goals } from "./goals";
+const openingRecord = () => <p role="status">Opening records…</p>;
+const Library = dynamic(
+  () => import("./library").then((module) => module.Library),
+  { loading: openingRecord },
+);
+const Projects = dynamic(
+  () => import("./projects").then((module) => module.Projects),
+  { loading: openingRecord },
+);
+const JournalView = dynamic(
+  () => import("./journal").then((module) => module.JournalView),
+  { loading: openingRecord },
+);
+const TaskDetail = dynamic(
+  () => import("./task-detail").then((module) => module.TaskDetail),
+  { loading: openingRecord },
+);
+const TaskComposer = dynamic(
+  () => import("./task-composer").then((module) => module.TaskComposer),
+  { loading: openingRecord },
+);
+const Learnings = dynamic(
+  () => import("./learnings").then((module) => module.Learnings),
+  { loading: openingRecord },
+);
+const Challenges = dynamic(
+  () => import("./challenges").then((module) => module.Challenges),
+  { loading: openingRecord },
+);
+const Goals = dynamic(() => import("./goals").then((module) => module.Goals), {
+  loading: openingRecord,
+});
 const tabs = [
   "Tasks",
   "Projects",
@@ -88,6 +117,7 @@ function MasterRecords({ tab }: { tab: string }) {
       ? `/api/workspace?view=task&task=${editing}`
       : null,
     data,
+    true,
   );
   async function refresh(through?: string) {
     if (through) {
@@ -104,10 +134,14 @@ function MasterRecords({ tab }: { tab: string }) {
     },
     [setScope],
   );
-  async function save(command: Record<string, unknown>) {
+  async function save(
+    command: Record<string, unknown>,
+    onResult?: (result: CommandResult) => void,
+  ) {
     setError("");
     try {
       const result = await postCommand(command);
+      onResult?.(result);
       if (
         result.patch &&
         !(data?.workMode?.enabled && result.patch.collection === "categories")
@@ -240,17 +274,25 @@ function MasterRecords({ tab }: { tab: string }) {
       )}
       {editing && (
         <Drawer
-          title={editing === "new" ? "New task" : "Edit task"}
+          popup
+          hideTitle={editing === "new"}
+          title={editing === "new" ? "New task" : "Task details"}
           onClose={() => setEditing(null)}
         >
           {editing === "new" ? (
-            <TaskForm data={data} save={save} onDone={() => setEditing(null)} />
+            <TaskComposer
+              data={data}
+              save={save}
+              onDone={() => setEditing(null)}
+            />
           ) : detail.data?.tasks[0] ? (
             <TaskDetail
+              key={detail.data.tasks[0].id}
               task={detail.data.tasks[0]}
               data={detail.data}
               save={save}
               onClose={() => setEditing(null)}
+              refreshError={detail.error}
             />
           ) : (
             <p>{detail.error || "Loading task…"}</p>

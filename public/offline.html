@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#202020" />
+    <title>Tasks · Offline</title>
+    <style>
+      html {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+        background: #202020;
+        color: #eee;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      main {
+        max-width: 390px;
+        line-height: 1.6;
+      }
+      img {
+        width: 64px;
+        height: 64px;
+        border-radius: 14px;
+      }
+      h1 {
+        font-size: 25px;
+        line-height: 1.3;
+        margin: 24px 0 12px;
+      }
+      p {
+        color: #bbb;
+      }
+      a {
+        display: inline-block;
+        margin-top: 12px;
+        padding: 10px 18px;
+        border-radius: 8px;
+        background: #e66d60;
+        color: #171717;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      a:focus-visible {
+        outline: 2px solid white;
+        outline-offset: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/icons/app-icon-192.png" alt="" />
+      <h1>You’re offline</h1>
+      <p>
+        Reconnect to view your tasks or save changes. Your private task data
+        isn’t stored in the offline page.
+      </p>
+      <a href="/?view=today">Try again</a>
+    </main>
+  </body>
+</html>

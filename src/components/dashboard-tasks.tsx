@@ -1,8 +1,17 @@
 "use client";
 import { TaskPriorityDials } from "./task-priority-dials";
+import { DatePicker } from "./date-picker";
 import { useState, useEffect } from "react";
+import { isPendingTask } from "@/lib/task-scheduling";
 import { addDays, dateKey } from "@/lib/domain";
-import { Check, Repeat2, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Check,
+  Repeat2,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+  ChevronDown,
+} from "lucide-react";
 import type { Task, Workspace } from "@/lib/workspace";
 import type { Save } from "./task-form";
 
@@ -39,9 +48,10 @@ export function DashboardTasks({
     onSort(key, sort === key && direction === "desc" ? "asc" : "desc");
   }
   const [busy, setBusy] = useState(false);
+  const [overdueExpanded, setOverdueExpanded] = useState(true);
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
-  const todayOnly =
+  const defaultScope =
     mode === "execute" && !scope.category && !scope.entity && !scope.tag;
   const tasks = data.tasks.filter(
     (t) =>
@@ -49,7 +59,13 @@ export function DashboardTasks({
       (mode === "execute"
         ? t.status !== "CANCELLED"
         : !["COMPLETED", "CANCELLED"].includes(t.status)) &&
-      (!todayOnly || t.plannedDate?.slice(0, 10) === data.today),
+      (!defaultScope ||
+        isPendingTask(t, data.today) ||
+        (t.status === "COMPLETED" &&
+          (t.plannedDate?.slice(0, 10) === data.today ||
+            (t.completedAt &&
+              dateKey(new Date(t.completedAt), data.user.timezone) ===
+                data.today)))),
   );
   const dateLabel = (date: string) =>
     date === "undated"
@@ -93,22 +109,7 @@ export function DashboardTasks({
   function card(task: Task) {
     const done = task.status === "COMPLETED";
     const date = task.plannedDate?.slice(0, 10);
-    const expected = task.dueAt
-      ? dateKey(new Date(task.dueAt), data.user.timezone)
-      : date;
-    const daysLate = expected
-      ? Math.max(
-          0,
-          Math.round(
-            (Date.parse(data.today) - Date.parse(expected)) / 86400000,
-          ),
-        )
-      : 0;
-    const weeks = Math.floor(daysLate / 7);
-    const remainder = daysLate % 7;
-    const delay = weeks
-      ? `${weeks} ${weeks === 1 ? "week" : "weeks"}${remainder ? ` ${remainder} ${remainder === 1 ? "day" : "days"}` : ""}`
-      : `${daysLate} ${daysLate === 1 ? "day" : "days"}`;
+    const overdue = !done && !!date && date < data.today;
     return (
       <article
         key={task.id}
@@ -169,36 +170,29 @@ export function DashboardTasks({
               readOnly
             />
           )}
-          {mode !== "manage" && daysLate > 0 && !done && (
-            <span className="task-date overdue execute-overdue">
-              {daysLate && !done ? (
-                <>
-                  Due{" "}
-                  {new Date(expected! + "T00:00:00Z").toLocaleDateString("en", {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                    timeZone: "UTC",
-                  })}
-                  <span className="overdue-delay">{delay} overdue</span>
-                </>
-              ) : date ? (
-                date === data.today ? (
-                  "Today"
-                ) : (
-                  new Date(date + "T00:00:00Z").toLocaleDateString("en", {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                    timeZone: "UTC",
-                  })
-                )
-              ) : (
-                ""
-              )}
-            </span>
-          )}
         </div>
+        {mode === "execute" && (task.description || overdue) && (
+          <div className="execute-task-details">
+            {task.description && (
+              <p className="execute-task-description">{task.description}</p>
+            )}
+            {overdue && (
+              <div className="execute-task-meta">
+                <span className="execute-overdue-date">
+                  <CalendarDays size={12} aria-hidden="true" />
+                  <time dateTime={date}>
+                    {new Date(date + "T00:00:00Z").toLocaleDateString("en-GB", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                      timeZone: "UTC",
+                    })}
+                  </time>
+                </span>
+              </div>
+            )}
+          </div>
+        )}
         {mode === "manage" && (
           <>
             {task.description && (
@@ -211,9 +205,36 @@ export function DashboardTasks({
   }
   const openTasks = tasks.filter((t) => t.status !== "COMPLETED");
   const completedTasks = tasks.filter((t) => t.status === "COMPLETED");
+  const overdueTasks = openTasks.filter(
+    (task) => !!task.plannedDate && task.plannedDate.slice(0, 10) < data.today,
+  );
+  const currentTasks = openTasks.filter(
+    (task) => !task.plannedDate || task.plannedDate.slice(0, 10) >= data.today,
+  );
+  const overdueCount = data.page?.overdueCount ?? overdueTasks.length;
   const dates = [
-    ...new Set(openTasks.map((t) => t.plannedDate?.slice(0, 10) || "undated")),
+    ...new Set([
+      data.today,
+      ...currentTasks.map((t) => t.plannedDate?.slice(0, 10) || "undated"),
+    ]),
   ].sort();
+  async function rescheduleOverdue(plannedDate: string) {
+    if (busy || !plannedDate) return;
+    setBusy(true);
+    try {
+      await save({
+        type: "tasks.rescheduleOverdue",
+        plannedDate,
+        scope:
+          data.page?.scope ||
+          Object.fromEntries(
+            Object.entries(scope).filter(([, value]) => value),
+          ),
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
   const laneDates = Array.from({ length: laneCount }, (_, i) =>
     addDays(start, i),
   );
@@ -306,31 +327,90 @@ export function DashboardTasks({
                   ))}
                 </div>
               </div>
-              {sort === "plannedDate"
-                ? dates.map((date) => (
-                    <section key={date}>
-                      <h2>{dateLabel(date)}</h2>
-                      {openTasks
-                        .filter(
-                          (t) =>
-                            (t.plannedDate?.slice(0, 10) || "undated") === date,
-                        )
-                        .map(card)}
-                    </section>
-                  ))
-                : openTasks.map(card)}
+              {overdueCount > 0 && (
+                <section
+                  className="execute-overdue-section"
+                  aria-label="Overdue tasks"
+                >
+                  <div className="execute-section-heading">
+                    <h2>
+                      <button
+                        type="button"
+                        className="execute-section-toggle"
+                        aria-expanded={overdueExpanded}
+                        aria-controls="execute-overdue-tasks"
+                        onClick={() =>
+                          setOverdueExpanded((expanded) => !expanded)
+                        }
+                      >
+                        <ChevronDown size={14} aria-hidden="true" />
+                        Overdue
+                      </button>
+                    </h2>
+                    <DatePicker
+                      label="Reschedule all overdue tasks"
+                      triggerText={busy ? "Rescheduling…" : "Reschedule"}
+                      value=""
+                      today={data.today}
+                      min={data.today}
+                      allowNoDate={false}
+                      disabled={busy}
+                      className="execute-bulk-reschedule"
+                      onChange={(date) => void rescheduleOverdue(date)}
+                    />
+                  </div>
+                  <div
+                    id="execute-overdue-tasks"
+                    hidden={!overdueExpanded}
+                    aria-busy={busy}
+                  >
+                    {overdueTasks.map(card)}
+                    {overdueTasks.length < overdueCount && (
+                      <p className="muted small">
+                        {overdueCount - overdueTasks.length} more overdue tasks.
+                        Reschedule includes all {overdueCount}.
+                      </p>
+                    )}
+                  </div>
+                </section>
+              )}
+              {dates.map((date) => (
+                <section key={date} className="execute-date-section">
+                  <h2>
+                    {date === data.today
+                      ? new Date(date + "T00:00:00Z").toLocaleDateString(
+                          "en-GB",
+                          { day: "numeric", month: "short", timeZone: "UTC" },
+                        ) +
+                        " · Today · " +
+                        new Date(date + "T00:00:00Z").toLocaleDateString("en", {
+                          weekday: "long",
+                          timeZone: "UTC",
+                        })
+                      : dateLabel(date)}
+                  </h2>
+                  {currentTasks
+                    .filter(
+                      (t) =>
+                        (t.plannedDate?.slice(0, 10) || "undated") === date,
+                    )
+                    .map(card)}
+                  {date === data.today && (
+                    <button className="inline-add-task" onClick={() => onAdd()}>
+                      <span aria-hidden="true">+</span>Add task
+                    </button>
+                  )}
+                </section>
+              ))}
               {completedTasks.length > 0 && (
                 <section className="execute-completed">
                   <h2>Completed · {completedTasks.length}</h2>
                   {completedTasks.map(card)}
                 </section>
               )}
-              <button className="inline-add-task" onClick={() => onAdd()}>
-                <span aria-hidden="true">+</span>Add task
-              </button>
               {!tasks.length && (
                 <p className="empty">
-                  {todayOnly ? "No tasks for today." : "No tasks."}
+                  {defaultScope ? "No pending tasks." : "No tasks."}
                 </p>
               )}
             </div>

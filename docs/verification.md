@@ -131,3 +131,85 @@ browser. `node scripts/test-isolated.mjs --api-only` runs the isolated database/
 - Vercel releases now run the existing safe migration runner before building, keeping production credentials on Vercel. The historical clean-start reset is marked applied rather than executed. No production secrets were downloaded locally.
 
 - After clarification that the desktop UI felt too large, compact desktop density was added: 14px navigation/task text, a 224px sidebar, tighter task rows and toolbar spacing, and narrower goal lanes. The local browser confirmed a 14px workspace, 224px sidebar and no page-width overflow. Mobile sizing and browser zoom remain unchanged.
+
+## Local pending-task views — 29 October 2026
+
+- Execute loads overdue, today and undated open work across pagination, while future scheduled work remains outside the default view. Collection filters retain their existing all-date browsing behavior. Completed-today tasks remain below open work, including overdue/undated tasks checked off today in the account timezone.
+- Move to today uses the existing version-checked schedule command. It appears only for pending tasks not already scheduled today; completed, cancelled and archived tasks cannot be moved. Other repeat occurrences and due dates are preserved.
+- Plan keeps explicit scheduled dates and all materialized repeat occurrences. Pending cards are brighter and labelled Pending; older dated tasks no longer duplicate in the unplaced list. Undated work stays unplaced, and a Work mode child category can serve as a visible column when its parent is outside the scope.
+- Browser verified actual local overdue tasks on their original October 26/27 Plan cells. In the disposable test workspace, Move to today saved and survived reload, with the action gone once the task was in today's group.
+- Verification uses Node 24, a Webpack production build/type check, unit checks and isolated database/HTTP regressions. The disposable PGlite harness explicitly sets UTC to match the configured production adapter; this preserves exact timestamp round trips at account-day boundaries.
+- No commit, push, production migration or deployment was performed for this change. Local app runs on port 3000; the separate disposable verification app uses port 3107.
+- Final result: production build/type checks, 22 unit tests, 11 database workflow tests and two HTTP suites passed (35 total). Browser confirmed checking off an overdue test task keeps it in Completed after reload and removes its reschedule action. The narrow viewport check reported document width equal to viewport width after the navigation fix; temporary viewport overrides were reset.
+
+## Local minimal task creation and shared calendars — 29 October 2026
+
+- New task creation starts with a plus menu and task-name input. Enter or the submit arrow saves; today is the default. Category/description/date/Importance/Urgency/projects appear only when requested; explicit Plan cell context is retained. Description uses the existing stored field.
+- Confirmed preferences: simple checklist children with no own dates/categories, manual parent completion, 1–10 Importance and Urgency, no task scheduling time, all repeat presets. Checklist storage/owner/version-checked commands are ready; checklist UI and comprehensive edit design are intentionally deferred.
+- Undated tasks remain saved with their descriptions and can be retrieved by direct detail/pickers, but are hidden from task lists and collection counts for now.
+- Shared DatePicker replaces applicable date controls in task forms, activity/reminders, journal metadata, reports, planning periods, timeline capture and repeat end dates. Existing time-based fields retain their timezone conversions. Repeat supports daily, weekly, weekdays, monthly, yearly (12 months), and custom intervals. Calendar and repeat menus preserve form fields when closed, respect date bounds, support keyboard dismissal and position within the viewport.
+- Applied additive checklist and repeat-unit migrations only to the local preview. No commit, push, production migration or deployment was performed.
+- Node 24 Webpack production build and typecheck passed. 26 unit tests, 14 isolated database workflows and two HTTP suites passed (42 total).
+- Browser verified minimal default state and focus, Enter saving a task dated today, optional description/category/dials persisting (Importance7/Urgency8), preserving Importance when Urgency is added, weekday-repeat materialization without weekend dates, and saving a hidden undated task with its description. Database checks used only a disposable test workspace.
+
+### Grouped overdue tasks and bulk rescheduling — 29 October 2026
+
+- Execute now groups all past-date open tasks in one collapsible Overdue section, including when sorting by Urgency or Importance. Today stays below it. Individual Move to today buttons and delay text were removed; dates use compact red calendar labels matching the reference.
+- The Reschedule action uses the shared date picker and applies one atomic command across all matching pages, respecting the fetched category/entity/project/tag/search/status scope and the account's Work mode. A server count includes unloaded tasks; the UI waits for the refreshed view after saving.
+- Completed, cancelled, archived, undated, today and future tasks are excluded. Recurring occurrences keep their original recurrence identity and future schedule; due timestamps are preserved.
+- Validation: production webpack build passed after removing stale generated `.next/dev` cache; 26 unit tests, 16 disposable database workflows and 2 HTTP workflows passed (44 total). The new database coverage checks 105 matching tasks across pages, scope snapshots/counts, exclusions, ownership, idempotent retries and recurrence preservation.
+- Browser: disposable category with two overdue tasks and one task for today; selecting Today in the bulk calendar moved both overdue tasks into Today and removed the Overdue section. Verified priority sorting keeps the Overdue group. Final local preview has no browser console errors.
+- Changes remain local; no commit, push, deployment or production data mutation. Preview: `outputs/overdue-grouped-local.png` in the current chat workspace.
+
+### Two-column task editor and nested checklist — 29 October 2026
+
+- The task popup uses a wide split layout: task name/manual completion, description and nested sub-tasks in the left pane; category, projects, dates, urgency/importance, status, tags, entities, estimates, repeat settings, comments, related goals/challenges, reminders, effort/history, archive and tomorrow action in the right pane. Narrow screens stack the two panes.
+- Checklist UI supports add, inline rename, completion/reopening and removal. It never creates standalone task rows or automatically completes the parent. Date editing uses the shared picker; planned dates remain date-only and optional.
+- Task acknowledgements return versions immediately. Scalar and checklist commands share a serialized version, so rapid sequential edits remain valid. Existing drafts survive checklist saves and same-task background refreshes, including refresh errors; unexpected newer versions block overwriting another tab's edits.
+- Validation: production webpack build passed; 28 unit tests, 16 isolated database workflows and 2 HTTP workflows passed (46 total). Two new acknowledgement tests protect manual completion, checklist content and shared-series date/status preservation.
+- Browser verification used disposable data: add/rename/check/remove sub-tasks while preserving an unsaved description; edit urgency and save task fields; manually complete the parent, remove a sub-task and save again without reopening it accidentally; retain project/tag links; clear and restore the planned date; reopen and verify saved values. Database checks confirmed the content, links and nine successive acknowledged versions. No browser console errors in the isolated editor.
+- Screenshot: task-edit-two-column.png in the current chat's outputs directory. Local app remains running; no commit, push, deployment or production data mutation.
+
+### Minimal goal/challenge creation and detailed editors — 29–30 October 2026
+
+- Goals and challenges share a compact create form with name, reason and inline sub-goal/sub-challenge names. As confirmed by the user, top-level creation keeps a small category picker; creation inside a parent or category column inherits that category.
+- Clicking either record opens a task-style two-column editor. Name, reason and child hierarchy stay left; categories, parent links, goal progress/status/estimates or challenge goal association/core learning, linked tasks, comments/check-ins/logs/journals and archive/delete stay right. Existing board ordering and category scoping are preserved.
+- Adding a child opens a second create popup while keeping the parent editor and its unsaved drafts mounted. Acknowledged versions update before parallel list/detail refreshes; failed refreshes retain drafts. Native Escape uses the same close guard as the close button.
+- Verification: production webpack build passed; 28 unit tests, 16 isolated database workflows and 3 HTTP workflows passed (47 total). New HTTP coverage checks atomic parent-plus-children saves, inherited defaults, detailed edits retaining children, stale writes and rollback for invalid child ownership/category.
+- Browser checks created both parents with two children, added a third through the editor while retaining unsaved parent drafts, saved detailed settings, posted a goal progress check-in and challenge learning log without losing reason text, then reopened both records. Database assertions confirmed both parents, six children, category/reason inheritance, goal progress and hours, challenge goal association/core learning and comment/log history. No browser console errors in the test workspace.
+- Previews saved in the current chat outputs: goal-create-minimal.png, goal-edit-two-column.png, challenge-create-minimal.png and challenge-edit-two-column.png. Changes are local only; no commit, push, deployment, schema migration or production data mutation.
+
+## PWA, push summaries and load performance — 30 October 2026
+
+- Production build and TypeScript/no-unused checks pass. Unit tests: 43/43;
+  disposable database workflows: 19/19; HTTP workflows: 4/4. Dependency audit
+  reports zero known vulnerabilities in both the full and production trees.
+- Browser checked minimal task creation, direct Goals navigation, task details,
+  adding a nested checklist item while preserving the parent title draft, and
+  saving the parent afterward. App/notification controls render the confirmed
+  account timezone and completed-today/all-pending count definitions. Browser
+  verification used an isolated temporary database, never production records.
+- PWA tests cover the actual Next 16 Turbopack asset filenames, immutable-only
+  public asset caching, private HTML/API/mutation exclusions, generic offline
+  fallback, explicit update acceptance and editor-safe notification clicks.
+  Development unregisters only this app's worker and clears its public caches.
+- HTTP checks confirm private APIs stay no-store; content-hashed JavaScript is
+  immutable; manifest and service worker revalidate; worker scope is root.
+- Workspace-specific initial entry JavaScript decreased from 308,988 to 185,208
+  raw bytes (about 40%) before the final small cleanup. Heavy views are loaded
+  when opened. SSR honors the bookmarked view and skips the redundant first
+  workspace read. Independent database reads run concurrently. New Server-Timing
+  values separate authentication and workspace costs. These are code/bundle
+  results, not a claim of measured production p95; current Vercel observability
+  aggregate access requires a paid plan.
+- Verified unused legacy task-form implementation and unreachable activity-form
+  creation branches were removed; historical database columns/tables remain.
+- New task-checklist and Web Push migrations are additive; weekday recurrence
+  only expands a check constraint. Release preflight blocks destructive pending
+  SQL for populated databases, never executes the retired reset, and compares
+  business-table row counts before and after migrations. No seed/reset runs.
+- Native daily cron targets 09:00/20:00 Asia/Kolkata. Hobby scheduling can be up
+  to 59 minutes late and has no automatic retry; exact timing/reliable later
+  retry needs the documented external scheduler or suitable Vercel plan.
+  Production push delivery must not be called active until secret installation,
+  device opt-in, a test push and a scheduled invocation have been verified.

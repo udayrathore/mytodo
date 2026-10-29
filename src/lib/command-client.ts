@@ -1,4 +1,4 @@
-import type { Workspace } from "./workspace";
+import type { Workspace, TaskChecklistItem } from "./workspace";
 type Patch = {
   collection: "categories" | "tags" | "entities";
   record: { id: string };
@@ -7,6 +7,8 @@ export type CommandResult = {
   ok: boolean;
   id?: string;
   version?: number;
+  seriesVersion?: number;
+  checklistItems?: TaskChecklistItem[];
   patch?: Patch;
 };
 // Keep a key for ambiguous network failures so Retry cannot duplicate a committed write.
@@ -37,17 +39,24 @@ export async function postCommand(
       : new Error("Connection interrupted. Retry this change safely.");
   }
 }
+// A saved undated task remains retrievable through detail/pickers, but must not
+// be reintroduced into a standalone list by an in-memory refresh or patch.
+export function visibleWorkspaceTasks(data: Workspace): Workspace {
+  if (!data.page || ["task", "picker"].includes(data.page.view)) return data;
+  const tasks = data.tasks.filter((task) => task.plannedDate !== null);
+  return tasks.length === data.tasks.length ? data : { ...data, tasks };
+}
 export function applyCommandPatch(
   data: Workspace,
   result: CommandResult,
 ): Workspace {
-  if (!result.patch) return data;
+  if (!result.patch) return visibleWorkspaceTasks(data);
   const { collection, record } = result.patch;
-  return {
+  return visibleWorkspaceTasks({
     ...data,
     [collection]: [
       ...data[collection].filter((item) => item.id !== record.id),
       record,
     ],
-  } as Workspace;
+  } as Workspace);
 }

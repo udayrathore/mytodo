@@ -1,4 +1,5 @@
 "use client";
+import { DatePicker } from "./date-picker";
 import { useEffect, useState, type FormEvent } from "react";
 import { Plus, ArrowRight, Check, Minus } from "lucide-react";
 import type { Workspace, Task } from "@/lib/workspace";
@@ -229,22 +230,26 @@ export function Planning({
             <Field label="Title">
               <input name="title" required autoFocus placeholder="Week name" />
             </Field>
-            <Field label="Starts on">
-              <input
+            <div className="field">
+              <span>Starts on</span>
+              <DatePicker
+                label="Starts on"
                 name="startsOn"
-                type="date"
+                today={data.today}
                 defaultValue={addDays(weekOf(data.today).start, 7)}
                 required
               />
-            </Field>
-            <Field label="Ends on">
-              <input
+            </div>
+            <div className="field">
+              <span>Ends on</span>
+              <DatePicker
+                label="Ends on"
                 name="endsOn"
-                type="date"
+                today={data.today}
                 defaultValue={addDays(weekOf(data.today).end, 7)}
                 required
               />
-            </Field>
+            </div>
             <button className="button primary" disabled={busy}>
               Create plan
             </button>

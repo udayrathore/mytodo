@@ -1,22 +1,14 @@
 "use client";
-import { WorkModeSettings } from "./work-mode-settings";
 import { PopoverMenu } from "./popover-menu";
 import { mayLeaveEditor } from "./navigation-guard";
-import { postCommand, applyCommandPatch } from "@/lib/command-client";
-import { Learnings } from "./learnings";
-import { Challenges } from "./challenges";
-import { Goals } from "./goals";
-import { AccountSettings } from "./account-settings";
-import { Master } from "./master";
+import {
+  postCommand,
+  applyCommandPatch,
+  type CommandResult,
+} from "@/lib/command-client";
 import { TaskCollectionFilters } from "./task-collection-filters";
 import { DashboardTasks } from "./dashboard-tasks";
-import {
-  useEffect,
-  useState,
-  useCallback,
-  useRef,
-  type FormEvent,
-} from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   BriefcaseBusiness,
   Menu as MenuIcon,
@@ -46,17 +38,85 @@ import {
   duration,
   displayDate,
 } from "./ui";
-import { CategoryGrid, QuickTaskForm } from "./category-grid";
 import { groupTasks } from "@/lib/task-groups";
-import { TaskDetail } from "./task-detail";
-import { JournalView } from "./journal";
-import { Library } from "./library";
-import { Planning } from "./planning";
 import { useRemote } from "./use-remote";
-import { CategorySheet } from "./category-sheet";
-import { Projects } from "./projects";
-import { CategoryDistribution } from "./category-distribution";
-import { Insights, Timeline } from "./insights";
+import dynamic from "next/dynamic";
+import {
+  workspaceRequestKey,
+  type WorkspaceNavigation,
+} from "@/lib/workspace-navigation";
+const loadingFeature = () => <p role="status">Opening view…</p>;
+const TaskComposer = dynamic(
+  () => import("./task-composer").then((module) => module.TaskComposer),
+  { loading: loadingFeature },
+);
+const WorkModeSettings = dynamic(
+  () =>
+    import("./work-mode-settings").then((module) => module.WorkModeSettings),
+  { loading: loadingFeature },
+);
+const Learnings = dynamic(
+  () => import("./learnings").then((module) => module.Learnings),
+  { loading: loadingFeature },
+);
+const Challenges = dynamic(
+  () => import("./challenges").then((module) => module.Challenges),
+  { loading: loadingFeature },
+);
+const Goals = dynamic(() => import("./goals").then((module) => module.Goals), {
+  loading: loadingFeature,
+});
+const AccountSettings = dynamic(
+  () => import("./account-settings").then((module) => module.AccountSettings),
+  { loading: loadingFeature },
+);
+const Master = dynamic(
+  () => import("./master").then((module) => module.Master),
+  { loading: loadingFeature },
+);
+const TaskDetail = dynamic(
+  () => import("./task-detail").then((module) => module.TaskDetail),
+  { loading: loadingFeature },
+);
+const JournalView = dynamic(
+  () => import("./journal").then((module) => module.JournalView),
+  { loading: loadingFeature },
+);
+const Library = dynamic(
+  () => import("./library").then((module) => module.Library),
+  { loading: loadingFeature },
+);
+const Planning = dynamic(
+  () => import("./planning").then((module) => module.Planning),
+  { loading: loadingFeature },
+);
+const CategorySheet = dynamic(
+  () => import("./category-sheet").then((module) => module.CategorySheet),
+  { loading: loadingFeature },
+);
+const Projects = dynamic(
+  () => import("./projects").then((module) => module.Projects),
+  { loading: loadingFeature },
+);
+const CategoryDistribution = dynamic(
+  () =>
+    import("./category-distribution").then(
+      (module) => module.CategoryDistribution,
+    ),
+  { loading: loadingFeature },
+);
+const CategoryGrid = dynamic(
+  () => import("./category-grid").then((module) => module.CategoryGrid),
+  { loading: loadingFeature },
+);
+const Insights = dynamic(
+  () => import("./insights").then((module) => module.Insights),
+  { loading: loadingFeature },
+);
+const Timeline = dynamic(
+  () => import("./insights").then((module) => module.Timeline),
+  { loading: loadingFeature },
+);
 const nav = [
   { id: "today", name: "My day", icon: Sun },
 
@@ -91,29 +151,49 @@ const headings: Record<string, string> = {
   account: "Login & recovery",
   "work-mode": "Work mode",
 };
-export function Workspace({ initial }: { initial: Data }) {
+export function Workspace({
+  initial,
+  initialNavigation,
+}: {
+  initial: Data;
+  initialNavigation: WorkspaceNavigation;
+}) {
+  const boot = initialNavigation;
   const [data, setData] = useState(initial);
-  const [view, setView] = useState("today");
+  const [view, setView] = useState(boot.view);
   const [dashboard, setDashboard] = useState<"execute" | "manage" | "plan">(
-    "execute",
+    boot.query.dashboard,
   );
-  const [category, setCategory] = useState("");
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("OPEN");
-  const [tag, setTag] = useState("");
-  const [entity, setEntity] = useState("");
-  const [archive, setArchive] = useState(false);
-  const [drawer, setDrawer] = useState<string | null>(null);
+  const [category, setCategory] = useState(boot.query.category || "");
+  const [search, setSearch] = useState(boot.query.search);
+  const [status, setStatus] = useState<string>(
+    boot.view === "tasks" ? boot.query.status : "OPEN",
+  );
+  const [tag, setTag] = useState(boot.query.tag || "");
+  const [entity, setEntity] = useState(boot.query.entity || "");
+  const [archive, setArchive] = useState(boot.query.archive === "true");
+  const [drawer, setDrawer] = useState<string | null>(boot.task);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(
     null,
   );
   const [saving, setSaving] = useState(false);
   const [modeChanging, setModeChanging] = useState(false);
   const [newTaskDate, setNewTaskDate] = useState<string | null>(null);
-  const [capture, setCapture] = useState("");
   const [expandedSeries, setExpandedSeries] = useState<string[]>([]);
   const [visible, setVisible] = useState(60);
-  const query = useRef<Record<string, string>>({});
+  const query = useRef<Record<string, string>>({
+    ...Object.fromEntries(
+      Object.entries(boot.query)
+        .filter(([, value]) => value !== undefined)
+        .map(([key, value]) => [key, String(value)]),
+    ),
+    ...(initial.page
+      ? { from: initial.page.from, through: initial.page.through }
+      : {}),
+    ...(boot.view === "journal" ? { journalSearch: boot.query.search } : {}),
+  });
+  const lastLoadedKey = useRef(workspaceRequestKey(query.current));
+  const pendingRead = useRef<{ key: string; number: number } | null>(null);
   const requestNumber = useRef(0);
   const [loading, setLoading] = useState(false);
   query.current = {
@@ -141,58 +221,87 @@ export function Workspace({ initial }: { initial: Data }) {
     tag: view === "tasks" || view === "today" ? tag : "",
     entity: view === "tasks" || view === "today" ? entity : "",
   };
-  const refresh = useCallback(async (through?: string, append = false) => {
-    if (through) query.current.through = through;
-    const number = ++requestNumber.current;
-    const params = new URLSearchParams(
-      Object.entries(query.current).filter(
-        ([k, v]) => v && k !== "journalSearch",
-      ),
-    );
-    if (!append) params.delete("cursor");
-    setLoading(true);
-    try {
-      const response = await fetch(`/api/workspace?${params}`, {
-        cache: "no-store",
-      });
-      if (response.status === 401) {
-        window.location.href = "/login";
-        return;
-      }
-      if (!response.ok) throw new Error("Could not load the workspace.");
-      const incoming: Data = await response.json();
-      if (number !== requestNumber.current) return;
-      setData((old) =>
-        append
-          ? {
-              ...incoming,
-              tasks: [
-                ...new Map(
-                  [...old.tasks, ...incoming.tasks].map((t) => [t.id, t]),
-                ).values(),
-              ],
-              events: [
-                ...new Map(
-                  [...old.events, ...incoming.events].map((e) => [e.id, e]),
-                ).values(),
-              ],
-              journals: [
-                ...new Map(
-                  [...old.journals, ...incoming.journals].map((j) => [j.id, j]),
-                ).values(),
-              ],
-            }
-          : incoming,
+  const refresh = useCallback(
+    async (through?: string, append = false, onlyIfChanged = false) => {
+      if (through) query.current.through = through;
+      const params = new URLSearchParams(
+        Object.entries(query.current).filter(
+          ([k, v]) => v && k !== "journalSearch",
+        ),
       );
-      if (append) setVisible((v) => v + 100);
-    } finally {
-      if (number === requestNumber.current) setLoading(false);
-    }
-  }, []);
+      if (!append) params.delete("cursor");
+      const key = workspaceRequestKey(Object.fromEntries(params));
+      if (onlyIfChanged && !append) {
+        if (lastLoadedKey.current === key) {
+          // A quick return to the already rendered view invalidates a slower
+          // request for the view that was just left.
+          if (pendingRead.current && pendingRead.current.key !== key) {
+            requestNumber.current++;
+            pendingRead.current = null;
+            setLoading(false);
+          }
+          return;
+        }
+        if (pendingRead.current?.key === key) return;
+      }
+      const number = ++requestNumber.current;
+      pendingRead.current = { key, number };
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/workspace?${params}`, {
+          cache: "no-store",
+        });
+        if (response.status === 401) {
+          window.location.href = "/login";
+          return;
+        }
+        if (!response.ok) throw new Error("Could not load the workspace.");
+        const incoming: Data = await response.json();
+        if (number !== requestNumber.current) return;
+        const collectionParams = new URLSearchParams(params);
+        collectionParams.delete("cursor");
+        lastLoadedKey.current = workspaceRequestKey(
+          Object.fromEntries(collectionParams),
+        );
+        setData((old) =>
+          append
+            ? {
+                ...incoming,
+                tasks: [
+                  ...new Map(
+                    [...old.tasks, ...incoming.tasks].map((t) => [t.id, t]),
+                  ).values(),
+                ],
+                events: [
+                  ...new Map(
+                    [...old.events, ...incoming.events].map((e) => [e.id, e]),
+                  ).values(),
+                ],
+                journals: [
+                  ...new Map(
+                    [...old.journals, ...incoming.journals].map((j) => [
+                      j.id,
+                      j,
+                    ]),
+                  ).values(),
+                ],
+              }
+            : incoming,
+        );
+        if (append) setVisible((v) => v + 100);
+      } finally {
+        if (pendingRead.current?.number === number) pendingRead.current = null;
+        if (number === requestNumber.current) setLoading(false);
+      }
+    },
+    [],
+  );
   useEffect(() => {
     delete query.current.cursor;
     const timer = setTimeout(() => {
-      void refresh().catch((e) => setNotice({ text: e.message, error: true }));
+      void refresh(undefined, false, true).catch((e) =>
+        setNotice({ text: e.message, error: true }),
+      );
     }, 150);
     return () => clearTimeout(timer);
   }, [
@@ -211,7 +320,9 @@ export function Workspace({ initial }: { initial: Data }) {
       query.current.from = from;
       query.current.through = through;
       delete query.current.cursor;
-      void refresh().catch((e) => setNotice({ text: e.message, error: true }));
+      void refresh(undefined, false, true).catch((e) =>
+        setNotice({ text: e.message, error: true }),
+      );
     },
     [refresh],
   );
@@ -220,7 +331,9 @@ export function Workspace({ initial }: { initial: Data }) {
       query.current[key] = value;
       if (key === "journalSearch") query.current.search = value;
       delete query.current.cursor;
-      void refresh().catch((e) => setNotice({ text: e.message, error: true }));
+      void refresh(undefined, false, true).catch((e) =>
+        setNotice({ text: e.message, error: true }),
+      );
     },
     [refresh],
   );
@@ -229,11 +342,12 @@ export function Workspace({ initial }: { initial: Data }) {
       ? `/api/workspace?view=task&task=${drawer}`
       : null,
     data,
+    true,
   );
   const loadRange = useCallback(
     async (through: string) => {
       try {
-        await refresh(through);
+        await refresh(through, false, true);
       } catch {
         setNotice({
           text: "Could not load repeating tasks for those dates.",
@@ -243,15 +357,6 @@ export function Workspace({ initial }: { initial: Data }) {
     },
     [refresh],
   );
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const v = params.get("view");
-    if (v && headings[v]) setView(v);
-    const cat = params.get("category");
-    if (cat) setCategory(cat);
-    const t = params.get("task");
-    if (t) setDrawer(t);
-  }, []);
   useEffect(() => {
     function keys(e: KeyboardEvent) {
       const target = e.target as HTMLElement;
@@ -279,10 +384,14 @@ export function Workspace({ initial }: { initial: Data }) {
     );
     return () => clearTimeout(timeout);
   }, [notice]);
-  async function save(command: Record<string, unknown>) {
+  async function save(
+    command: Record<string, unknown>,
+    onResult?: (result: CommandResult) => void,
+  ) {
     setSaving(true);
     try {
       const result = await postCommand(command);
+      onResult?.(result);
       if (
         result.patch &&
         !(data.workMode?.enabled && result.patch.collection === "categories")
@@ -291,12 +400,18 @@ export function Workspace({ initial }: { initial: Data }) {
         setLoading(false);
         setData((old) => applyCommandPatch(old, result));
       } else if (command.type !== "task.comment") {
-        void refresh().catch(() =>
+        const reloading = refresh().catch(() => {
           setNotice({
             text: "Saved. Could not refresh the view; use Refresh to reload it.",
             error: true,
-          }),
-        );
+          });
+          return false;
+        });
+        if (
+          command.type === "tasks.rescheduleOverdue" &&
+          (await reloading) === false
+        )
+          return true;
       }
       setNotice({ text: "Saved.", error: false });
       return true;
@@ -378,19 +493,6 @@ export function Workspace({ initial }: { initial: Data }) {
       "",
       `/?view=${view}${category ? `&category=${encodeURIComponent(category)}` : ""}`,
     );
-  }
-  async function quickCapture(e: FormEvent) {
-    e.preventDefault();
-    if (!capture.trim()) return;
-    if (
-      await save({
-        type: "task.create",
-        title: capture,
-        plannedDate: view === "today" ? data.today : null,
-        primaryCategoryId: category || null,
-      })
-    )
-      setCapture("");
   }
   const categoryIds = category ? descendants(data.categories, category) : null;
   const filtered = data.tasks.filter(
@@ -704,20 +806,12 @@ export function Workspace({ initial }: { initial: Data }) {
                 </div>
               )}
               {view === "tasks" && (
-                <form className="quick-capture" onSubmit={quickCapture}>
-                  <Plus size={21} />
-                  <input
-                    aria-label="Quick capture"
-                    maxLength={240}
-                    value={capture}
-                    onChange={(e) => setCapture(e.target.value)}
-                    placeholder="Add an upcoming task…"
-                    required
-                  />
-                  <button disabled={saving} type="submit">
-                    Capture <span>↵</span>
-                  </button>
-                </form>
+                <TaskComposer
+                  data={data}
+                  save={save}
+                  onDone={() => {}}
+                  defaultCategoryId={category}
+                />
               )}
               {view === "work-mode" && (
                 <WorkModeSettings
@@ -1009,28 +1103,25 @@ export function Workspace({ initial }: { initial: Data }) {
         {drawer && (
           <Drawer
             popup
-            hideTitle={drawer !== "new"}
+            hideTitle={drawer === "new"}
             title={drawer === "new" ? "Add a task" : "Task details"}
             onClose={closeDrawer}
           >
             {drawer === "new" ? (
-              <QuickTaskForm
+              <TaskComposer
                 data={data}
-                cell={{
-                  date: newTaskDate || data.today,
-                  categoryId: "",
-                  mode: "plan",
-                }}
+                defaultDate={newTaskDate || data.today}
                 save={save}
                 onDone={closeDrawer}
               />
             ) : selected ? (
               <TaskDetail
-                key={selected.id + ":" + selected.version}
+                key={selected.id}
                 task={selected}
                 data={detail.data || data}
                 save={save}
                 onClose={closeDrawer}
+                refreshError={detail.error}
               />
             ) : (
               <Empty

@@ -1,4 +1,5 @@
 "use client";
+import { DatePicker } from "./date-picker";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useState, useRef, useEffect } from "react";
@@ -420,19 +421,22 @@ export default function JournalDocument({
       </div>
       {details && (
         <div className="document-details form-stack">
-          <label className="field">
-            Entry date
-            <input
-              type="datetime-local"
+          <div className="field">
+            <span>Entry date</span>
+            <DatePicker
+              label="Entry date"
+              includeTime
+              allowNoDate={false}
+              today={data.today}
               value={localInput(draft.occurredAt, data.user.timezone)}
-              onChange={(e) => {
-                if (e.target.value)
+              onChange={(value) => {
+                if (value)
                   change({
-                    occurredAt: inputToIso(e.target.value, data.user.timezone),
+                    occurredAt: inputToIso(value, data.user.timezone),
                   });
               }}
             />
-          </label>
+          </div>
           <div className="field">
             <span>Categories</span>
             <Chips

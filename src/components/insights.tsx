@@ -1,11 +1,12 @@
 "use client";
+import { DatePicker } from "./date-picker";
 import { RemoteHistory} from "./remote-history";
 import { useState} from "react";
 import { useRemote} from "./use-remote";
 import { analytics} from "@/lib/analytics";
 import { weekOf, addDays} from "@/lib/domain";
 import type { Workspace, Task} from "@/lib/workspace";
-import { duration, displayDate,   Field} from "./ui";
+import { duration, displayDate} from "./ui";
 export function Insights({ data }: { data: Workspace }) {
   const [from, setFrom] = useState(addDays(weekOf(data.today).start, -21));
   const [to, setTo] = useState(data.today);
@@ -59,20 +60,24 @@ export function Insights({ data }: { data: Workspace }) {
     <>
       <div className="section-toolbar insight-filter">
         <div className="date-range">
-          <Field label="From">
-            <input
-              type="date"
+          <div className="field">
+            <span>From</span>
+            <DatePicker
+              label="From"
+              today={data.today}
               value={from}
-              onChange={(e) => setFrom(e.target.value)}
+              onChange={setFrom}
             />
-          </Field>
-          <Field label="To">
-            <input
-              type="date"
+          </div>
+          <div className="field">
+            <span>To</span>
+            <DatePicker
+              label="To"
+              today={data.today}
               value={to}
-              onChange={(e) => setTo(e.target.value)}
+              onChange={setTo}
             />
-          </Field>
+          </div>
         </div>
       </div>
       {!valid && <p role="alert">Choose a valid range of up to one year.</p>}

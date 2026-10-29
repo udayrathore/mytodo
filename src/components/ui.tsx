@@ -72,14 +72,18 @@ export function Drawer({
       ref={ref}
       aria-label={title}
       className={popup ? "drawer task-popup" : "drawer"}
-      onCancel={onClose}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div className="drawer-inner">
         <header className="drawer-head">
-          <span className={hideTitle ? "sr-only" : "eyebrow"}>{title}</span><div className="drawer-header-actions">{headerActions}</div>
+          <span className={hideTitle ? "sr-only" : "eyebrow"}>{title}</span>
+          <div className="drawer-header-actions">{headerActions}</div>
           <button
             className="icon-button"
             aria-label={popup ? "Close popup" : "Close panel"}

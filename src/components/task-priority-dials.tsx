@@ -5,16 +5,25 @@ export function TaskPriorityDials({
   urgency = 5,
   importance = 5,
   readOnly = false,
+  fields = ["urgency", "importance"],
+  minValue = 0,
+  form,
+  disabled = false,
 }: {
   urgency?: number;
   importance?: number;
   readOnly?: boolean;
+  fields?: readonly ("urgency" | "importance")[];
+  minValue?: number;
+  form?: string;
+  disabled?: boolean;
 }) {
   const [values, setValues] = useState({ urgency, importance });
   function update(name: "urgency" | "importance", value: number) {
+    if (disabled) return;
     setValues((previous) => ({
       ...previous,
-      [name]: Math.max(0, Math.min(10, value)),
+      [name]: Math.max(minValue, Math.min(10, value)),
     }));
   }
   function point(
@@ -35,7 +44,7 @@ export function TaskPriorityDials({
   if (readOnly)
     return (
       <div className="task-priority-dials task-priority-readonly">
-        {(["urgency", "importance"] as const).map((name) => {
+        {fields.map((name) => {
           const value = name === "urgency" ? urgency : importance;
           return (
             <div
@@ -72,21 +81,22 @@ export function TaskPriorityDials({
     );
   return (
     <div className="task-priority-dials">
-      {(["urgency", "importance"] as const).map((name) => (
+      {fields.map((name) => (
         <div className="task-dial-field" key={name}>
           <span>{name === "urgency" ? "Urgency" : "Importance"}</span>
           <div
             className="task-dial"
             role="slider"
-            tabIndex={0}
+            tabIndex={disabled ? -1 : 0}
+            aria-disabled={disabled}
             aria-label={name === "urgency" ? "Urgency" : "Importance"}
-            aria-valuemin={0}
+            aria-valuemin={minValue}
             aria-valuemax={10}
             aria-valuenow={values[name]}
             aria-valuetext={`${values[name]} out of 10`}
             title="Drag to adjust · arrow keys change by 1"
             onPointerDown={(event) => {
-              if (event.button !== 0) return;
+              if (disabled || event.button !== 0) return;
               event.currentTarget.focus();
               event.currentTarget.setPointerCapture(event.pointerId);
               point(name, event);
@@ -117,7 +127,7 @@ export function TaskPriorityDials({
                 update(
                   name,
                   event.key === "Home"
-                    ? 0
+                    ? minValue
                     : event.key === "End"
                       ? 10
                       : values[name] + delta!,
@@ -147,7 +157,13 @@ export function TaskPriorityDials({
             </svg>
             <span aria-hidden="true">{values[name]}</span>
           </div>
-          <input type="hidden" name={name} value={values[name]} />
+          <input
+            type="hidden"
+            name={name}
+            value={values[name]}
+            form={form}
+            disabled={disabled}
+          />
         </div>
       ))}
     </div>

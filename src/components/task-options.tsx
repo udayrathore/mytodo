@@ -1,4 +1,5 @@
 "use client";
+import { DatePicker } from "./date-picker";
 import { useState, type FormEvent } from "react";
 import { Repeat2 } from "lucide-react";
 import type { RepeatRule } from "@/lib/recurrence";
@@ -7,29 +8,65 @@ import type { Save } from "./task-form";
 export function RepeatFields({
   rule,
   allowNone = true,
+  startDate,
+  today,
 }: {
   rule?: RepeatRule | null;
   allowNone?: boolean;
+  startDate?: string;
+  today?: string;
 }) {
-  const initial = rule ? (rule.interval === 1 ? rule.unit : "CUSTOM") : "NONE";
+  const initial = rule
+    ? rule.unit === "MONTH" && rule.interval === 12
+      ? "YEAR"
+      : rule.interval === 1
+        ? rule.unit
+        : "CUSTOM"
+    : allowNone
+      ? "NONE"
+      : "DAY";
   const [preset, setPreset] = useState(initial);
-  const [unit, setUnit] = useState(rule?.unit || "DAY");
+  const [unit, setUnit] = useState(
+    rule?.unit === "WEEKDAY" ? "DAY" : rule?.unit || "DAY",
+  );
+  const anchor =
+    startDate || new Intl.DateTimeFormat("en-CA").format(new Date());
+  const date = new Date(anchor + "T00:00:00Z");
+  const weekday = date.toLocaleDateString("en", {
+    weekday: "long",
+    timeZone: "UTC",
+  });
+  const yearly = date.toLocaleDateString("en", {
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+  });
+  const presets = [
+    ...(allowNone ? [{ value: "NONE", label: "Does not repeat" }] : []),
+    { value: "DAY", label: "Every day" },
+    { value: "WEEK", label: `Every week on ${weekday}` },
+    { value: "WEEKDAY", label: "Every weekday (Mon–Fri)" },
+    { value: "MONTH", label: `Every month on day ${date.getUTCDate()}` },
+    { value: "YEAR", label: `Every year on ${yearly}` },
+    { value: "CUSTOM", label: "Custom…" },
+  ];
   return (
     <div className="repeat-fields form-stack">
-      <label className="field">
-        Repeat
-        <select
-          name="repeatPreset"
-          value={preset}
-          onChange={(e) => setPreset(e.target.value)}
-        >
-          {allowNone && <option value="NONE">Does not repeat</option>}
-          <option value="DAY">Daily</option>
-          <option value="WEEK">Weekly</option>
-          <option value="MONTH">Monthly</option>
-          <option value="CUSTOM">Custom interval</option>
-        </select>
-      </label>
+      <input type="hidden" name="repeatPreset" value={preset} />
+      <div className="repeat-presets" role="group" aria-label="Repeat options">
+        {presets.map((option) => (
+          <button
+            type="button"
+            key={option.value}
+            aria-label={option.label}
+            aria-pressed={preset === option.value}
+            onClick={() => setPreset(option.value)}
+          >
+            {option.label}
+            {preset === option.value && <span aria-hidden="true"> ✓</span>}
+          </button>
+        ))}
+      </div>
       {preset !== "NONE" && (
         <>
           {preset === "CUSTOM" && (
@@ -50,8 +87,8 @@ export function RepeatFields({
                 <select
                   name="repeatUnit"
                   value={unit}
-                  onChange={(e) =>
-                    setUnit(e.target.value as RepeatRule["unit"])
+                  onChange={(event) =>
+                    setUnit(event.target.value as typeof unit)
                   }
                 >
                   <option value="DAY">Days</option>
@@ -61,36 +98,48 @@ export function RepeatFields({
               </label>
             </div>
           )}
-          <label className="field">
-            Repeat until <span className="muted">(optional)</span>
-            <input
+          <div className="field">
+            <span>Repeat until (optional)</span>
+            <DatePicker
               name="repeatEnd"
-              type="date"
+              label="Repeat until"
+              today={today}
+              min={anchor}
               defaultValue={rule?.endsOn?.slice(0, 10) || ""}
             />
-          </label>
-          <p className="muted small">
-            Each date gets its own task. Monthly repeats use the last day when a
-            month is shorter.
-          </p>
+          </div>
         </>
       )}
     </div>
   );
 }
-export function readRepeat(f: FormData): RepeatRule | null {
-  const preset = String(f.get("repeatPreset") || "NONE");
-  return preset === "NONE"
-    ? null
-    : {
-        unit: (preset === "CUSTOM"
-          ? f.get("repeatUnit")
-          : preset) as RepeatRule["unit"],
-        interval: preset === "CUSTOM" ? Number(f.get("repeatInterval")) : 1,
-        endsOn: String(f.get("repeatEnd") || "") || null,
-      };
+export function readRepeat(form: FormData): RepeatRule | null {
+  const preset = String(form.get("repeatPreset") || "NONE");
+  if (preset === "NONE") return null;
+  return {
+    unit: (preset === "YEAR"
+      ? "MONTH"
+      : preset === "CUSTOM"
+        ? form.get("repeatUnit")
+        : preset) as RepeatRule["unit"],
+    interval:
+      preset === "YEAR"
+        ? 12
+        : preset === "CUSTOM"
+          ? Number(form.get("repeatInterval"))
+          : 1,
+    endsOn: String(form.get("repeatEnd") || "") || null,
+  };
 }
-export function SeriesSettings({ task, save }: { task: Task; save: Save }) {
+export function SeriesSettings({
+  task,
+  save,
+  today,
+}: {
+  task: Task;
+  save: Save;
+  today?: string;
+}) {
   const [busy, setBusy] = useState(false);
   const series = task.series;
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -127,6 +176,8 @@ export function SeriesSettings({ task, save }: { task: Task; save: Save }) {
         ) : (
           <>
             <RepeatFields
+              today={today}
+              startDate={task.plannedDate?.slice(0, 10)}
               key={series?.version || 0}
               rule={
                 series

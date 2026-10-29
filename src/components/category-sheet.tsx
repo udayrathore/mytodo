@@ -1,4 +1,5 @@
 "use client";
+import { DatePicker } from "./date-picker";
 import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { ChevronLeft, ChevronRight, Plus, Check } from "lucide-react";
 import { addDays, descendants } from "@/lib/domain";
@@ -111,14 +112,15 @@ export function CategorySheet({
           >
             <ChevronLeft size={18} />
           </button>
-          <input
-            aria-label="Timeline start date"
-            type="date"
+          <DatePicker
+            label="Timeline start date"
+            today={data.today}
+            allowNoDate={false}
             value={start}
             max={addDays(data.today, 724)}
-            onChange={(e) => {
-              if (e.target.value && e.target.value <= addDays(data.today, 724))
-                setStart(e.target.value);
+            onChange={(value) => {
+              if (value && value <= addDays(data.today, 724))
+                setStart(value);
             }}
           />
           <button
@@ -337,6 +339,7 @@ export function CategorySheet({
           onClose={() => setCapture(null)}
         >
           <TimelineCapture
+            today={data.today}
             categories={categories.filter((c) => c.isActive)}
             initial={capture}
             projectId={projectId}
@@ -364,12 +367,14 @@ export function CategorySheet({
   );
 }
 function TimelineCapture({
+  today,
   categories,
   initial,
   projectId,
   save,
   onDone,
 }: {
+  today: string;
   categories: Workspace["categories"];
   initial: { categoryId: string; date: string };
   projectId?: string;
@@ -436,21 +441,22 @@ function TimelineCapture({
                 ))}
               </select>
             </label>
-            <label className="field">
-              Date
-              <input
-                type="date"
+            <div className="field">
+              <span>Date</span>
+              <DatePicker
+                label={`Task ${i + 1} date`}
+                today={today}
                 required
                 value={row.plannedDate}
-                onChange={(e) =>
+                onChange={(value) =>
                   setRows(
                     rows.map((r, n) =>
-                      n === i ? { ...r, plannedDate: e.target.value } : r,
+                      n === i ? { ...r, plannedDate: value } : r,
                     ),
                   )
                 }
               />
-            </label>
+            </div>
           </div>
           {rows.length > 1 && (
             <button

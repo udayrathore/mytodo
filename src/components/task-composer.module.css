@@ -1,0 +1,155 @@
+.composer {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 0;
+}
+.mainRow {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.composer .title {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  font-size: 21px;
+  padding: 10px 12px;
+  background: transparent;
+  border: 1px solid #666;
+  border-radius: 8px;
+  outline-offset: 2px;
+}
+.composer .title:focus {
+  border-color: #aaa;
+}
+.composer .title:focus-visible {
+  outline: 1px solid #aaa;
+  outline-offset: 2px;
+}
+.addMenu > summary {
+  width: 40px;
+  height: 40px;
+  background: #383838;
+  border-radius: 10px;
+}
+.addMenu :global(.app-popover-panel) {
+  left: 0;
+  right: auto;
+  width: 245px;
+}
+.addMenu :global(.app-popover-panel) > button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  text-align: left;
+}
+.addMenu :global(.app-popover-panel) > button:hover {
+  background: #404040;
+}
+.addMenu :global(.app-popover-panel) > button > span {
+  margin-left: auto;
+  color: #92caa5;
+}
+.submit {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--green, #ef766a);
+  color: #171717;
+}
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
+.fields:empty {
+  display: none;
+}
+.selectChip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid #4b4b4b;
+  background: #292929;
+  border-radius: 8px;
+  padding: 6px 9px;
+  max-width: 100%;
+}
+.selectChip select {
+  border: 0;
+  padding: 0;
+  width: auto;
+  min-width: 0;
+  max-width: 250px;
+  background: transparent;
+  font-size: 14px;
+}
+.description {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 10px;
+}
+.description textarea {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+  background: transparent;
+  border: 0;
+  padding: 8px 0;
+}
+.description button {
+  background: transparent;
+  border: 0;
+  padding: 7px;
+}
+.projectMenu > summary {
+  padding: 8px 10px;
+  border: 1px solid #4b4b4b;
+  border-radius: 8px;
+}
+.projectOption {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px;
+}
+.repeat {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.hint {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+@media (max-width: 600px) {
+  .composer .title {
+    font-size: 18px;
+  }
+  .mainRow {
+    gap: 8px;
+  }
+  .selectChip select {
+    max-width: 190px;
+  }
+}
+
+.projectMenu :global(.app-popover-panel) {
+  left: 0;
+  right: auto;
+}

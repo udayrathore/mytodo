@@ -1,7 +1,23 @@
 "use client";
-import { useEffect, useState, useCallback, useRef } from "react";
-import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+  useId,
+  type ReactNode,
+} from "react";
+import {
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  AlignLeft,
+  Archive,
+  Trash2,
+  Target,
+} from "lucide-react";
 import { Drawer } from "./ui";
+import { HierarchyCreateForm } from "./hierarchy-create-form";
 type Challenge = {
   coreLearning: string;
   id: string;
@@ -75,13 +91,14 @@ export function Challenges({
     [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null),
     [detail, setDetail] = useState<Detail | null>(null),
-    [editing, setEditing] = useState<Challenge | "new" | null>(null),
+    [creating, setCreating] = useState(false),
     [parent, setParent] = useState<Challenge | null>(null),
     [category, setCategory] = useState(""),
     [drag, setDrag] = useState<string | null>(null),
     [over, setOver] = useState<string | null>(null);
-  const [adding, setAdding] = useState<"task" | "log" | "journal" | null>(null);
-  const [extraFields, setExtraFields] = useState<string[]>([]);
+  const mutationBusy = useRef(false);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
   const boardRef = useRef<HTMLDivElement>(null);
   const refresh = useCallback(async () => {
     setData(await read<ChallengeData>("/api/challenges"));
@@ -115,7 +132,8 @@ export function Challenges({
     };
   }, [selected]);
   async function olderComments() {
-    if (!detail?.nextCommentsCursor || busy) return;
+    if (!detail?.nextCommentsCursor || mutationBusy.current) return;
+    mutationBusy.current = true;
     setBusy(true);
     const id = detail.id;
     try {
@@ -134,25 +152,72 @@ export function Challenges({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load comments.");
     } finally {
+      mutationBusy.current = false;
       setBusy(false);
     }
   }
   async function act(body: Record<string, unknown>) {
-    if (busy) return false;
+    if (mutationBusy.current) return false;
+    mutationBusy.current = true;
     setBusy(true);
     setError("");
     try {
-      await write(body);
+      const acknowledgement = await write(body);
+      let expectedVersion =
+        detail?.id === selected ? detail.version : undefined;
+      if (
+        selected &&
+        selectedRef.current === selected &&
+        acknowledgement.result?.id === selected &&
+        acknowledgement.result?.title
+      ) {
+        expectedVersion = acknowledgement.result.version;
+        setDetail((previous) =>
+          previous?.id === selected
+            ? { ...previous, ...acknowledgement.result }
+            : previous,
+        );
+      } else if (
+        selected &&
+        selectedRef.current === selected &&
+        body.id === selected &&
+        (body.action === "archive" || body.action === "restore")
+      ) {
+        expectedVersion = detail ? detail.version + 1 : undefined;
+        setDetail((previous) =>
+          previous?.id === selected
+            ? {
+                ...previous,
+                version: previous.version + 1,
+                archivedAt:
+                  body.action === "archive" ? new Date().toISOString() : null,
+              }
+            : previous,
+        );
+      }
       try {
-        await refresh();
-        if (selected && body.action !== "delete")
-          setDetail(
-            (
-              await read<{ challenge: Detail }>(
+        await Promise.all([
+          refresh(),
+          selected && body.action !== "delete"
+            ? read<{ challenge: Detail }>(
                 `/api/challenges?id=${selected}`,
-              )
-            ).challenge,
-          );
+              ).then((next) => {
+                if (selectedRef.current !== selected) return;
+                if (
+                  expectedVersion !== undefined &&
+                  next.challenge.version > expectedVersion
+                ) {
+                  setError(
+                    "Saved. This challenge changed elsewhere; reopen it before editing again. Your draft is kept here.",
+                  );
+                  return;
+                }
+                setDetail((previous) =>
+                  previous?.id === selected ? next.challenge : previous,
+                );
+              })
+            : Promise.resolve(),
+        ]);
       } catch {
         setError(
           "Saved. Could not reload the view; refresh to see the latest records.",
@@ -163,6 +228,7 @@ export function Challenges({
       setError(e instanceof Error ? e.message : "Could not save.");
       return false;
     } finally {
+      mutationBusy.current = false;
       setBusy(false);
     }
   }
@@ -251,8 +317,6 @@ export function Challenges({
             onClick={() => {
               setError("");
               setSelected(g.id);
-              setAdding(null);
-              setExtraFields([]);
             }}
           >
             <span className="goal-card-title">{g.title}</span>
@@ -284,7 +348,7 @@ export function Challenges({
           onClick={() => {
             setParent(null);
             setCategory("");
-            setEditing("new");
+            setCreating(true);
           }}
         >
           <Plus size={16} />
@@ -373,7 +437,7 @@ export function Challenges({
                   onClick={() => {
                     setParent(null);
                     setCategory(c.id);
-                    setEditing("new");
+                    setCreating(true);
                   }}
                 >
                   <Plus size={16} />
@@ -383,218 +447,72 @@ export function Challenges({
             </section>
           ))}
       </div>
-      {selected && !editing && (
+      {selected && (
         <Drawer
           popup
-          hideTitle
-          title={detail?.title || "Challenge"}
-          headerActions={
-            detail && !detail.archivedAt ? (
-              <details className="challenge-add-menu">
-                <summary
-                  className="icon-button"
-                  aria-label="Add to challenge"
-                  title="Add to challenge"
-                >
-                  <Plus size={20} />
-                </summary>
-                <div>
-                  {(
-                    [
-                      "task",
-                      "log",
-                      "journal",
-                      "goal",
-                      "coreLearning",
-                      "parent",
-                      "subchallenge",
-                    ] as const
-                  ).map((action) => (
-                    <button
-                      key={action}
-                      type="button"
-                      onClick={(e) => {
-                        e.currentTarget
-                          .closest("details")
-                          ?.removeAttribute("open");
-                        if (action === "subchallenge") {
-                          setParent(detail);
-                          setCategory(detail.categoryId);
-                          setEditing("new");
-                        } else if (
-                          action === "goal" ||
-                          action === "coreLearning" ||
-                          action === "parent"
-                        )
-                          setExtraFields((fields) => [...fields, action]);
-                        else setAdding(action);
-                      }}
-                    >
-                      {
-                        {
-                          task: "Link a task",
-                          log: "Add a log",
-                          journal: "Link a journal",
-                          goal: "Link a goal",
-                          coreLearning: "Add core learning",
-                          parent: "Set parent challenge",
-                          subchallenge: "Add a sub-challenge",
-                        }[action]
-                      }
-                    </button>
-                  ))}
-                </div>
-              </details>
-            ) : null
-          }
+          title="Challenge details"
           onClose={() => {
-            setSelected(null);
-            setDetail(null);
+            if (!mutationBusy.current) {
+              setSelected(null);
+              setDetail(null);
+            }
           }}
         >
           {detail ? (
-            <>
-              {detail.parentId && (
-                <button
-                  className="text-button"
-                  onClick={() => setSelected(detail.parentId)}
-                >
-                  ←{" "}
-                  {data.challenges.find((c) => c.id === detail.parentId)
-                    ?.title || "Parent challenge"}
-                </button>
-              )}
-              {!detail.archivedAt ? (
-                <ChallengeForm
-                  key={detail.id}
-                  compact
-                  extraFields={extraFields}
-                  challenge={detail}
-                  parent={null}
-                  initialCategory={detail.categoryId}
-                  data={data}
-                  busy={busy}
-                  save={async (body) => {
-                    await act(body);
-                  }}
-                />
-              ) : (
-                <>
-                  <h2>{detail.title}</h2>
-                  <p>{detail.reason}</p>
-                  {detail.coreLearning && <p>{detail.coreLearning}</p>}
-                </>
-              )}
-              <div className="goal-actions">
-                <button
-                  className="button"
-                  disabled={busy}
-                  onClick={() => {
-                    if (
-                      detail.archivedAt ||
-                      window.confirm(
-                        "Archive this challenge and its subchallenges?",
-                      )
-                    )
-                      void act({
-                        action: detail.archivedAt ? "restore" : "archive",
-                        id: detail.id,
-                        version: detail.version,
-                      });
-                  }}
-                >
-                  {detail.archivedAt ? "Restore" : "Archive"}
-                </button>
-                <button
-                  className="text-button"
-                  disabled={busy}
-                  onClick={async () => {
-                    if (
-                      window.confirm(
-                        "Permanently delete this challenge, its subchallenges and comments? Linked tasks will be kept.",
-                      )
-                    )
-                      if (
-                        await act({
-                          action: "delete",
-                          id: detail.id,
-                          version: detail.version,
-                        })
-                      ) {
-                        setSelected(null);
-                        setDetail(null);
-                      }
-                  }}
-                >
-                  Delete
-                </button>
-              </div>
-              {data.challenges.some((g) => g.parentId === detail.id) && (
-                <section className="subsection">
-                  <h3>Sub-challenges</h3>
-                  {data.challenges
-                    .filter((g) => g.parentId === detail.id)
-                    .map((g) => (
-                      <button
-                        className="goal-subgoal-link"
-                        key={g.id}
-                        onClick={() => setSelected(g.id)}
-                      >
-                        {g.title}
-                        <span>{g.archivedAt ? "Archived" : ""}</span>
-                      </button>
-                    ))}
-                </section>
-              )}
-              <ChallengeTasks
-                linking={adding === "task"}
-                onDone={() => setAdding(null)}
-                detail={detail}
-                busy={busy}
-                act={act}
-                onOpenTask={onOpenTask}
-              />
-              <ChallengeLogs
-                olderComments={olderComments}
-                key={`${detail.id}-${adding}`}
-                mode={adding === "log" || adding === "journal" ? adding : null}
-                onDone={() => setAdding(null)}
-                detail={detail}
-                busy={busy}
-                act={act}
-              />
-
-              {error && (
-                <p role="alert" className="form-error">
-                  {error}
-                </p>
-              )}
-            </>
+            <ChallengeEditor
+              key={detail.id}
+              detail={detail}
+              data={data}
+              busy={busy}
+              error={error}
+              act={act}
+              olderComments={olderComments}
+              onOpenTask={onOpenTask}
+              onOpenChild={(id) => {
+                setError("");
+                setSelected(id);
+              }}
+              onAddChild={() => {
+                setError("");
+                setParent(detail);
+                setCategory(detail.categoryId);
+                setCreating(true);
+              }}
+              onDeleted={() => {
+                setSelected(null);
+                setDetail(null);
+              }}
+            />
           ) : (
             <p>{error || "Loading challenge…"}</p>
           )}
         </Drawer>
       )}
-      {editing && (
+      {creating && (
         <Drawer
           popup
-          title={editing === "new" ? "New challenge" : "Edit challenge"}
-          onClose={() => setEditing(null)}
-        >
-          <ChallengeForm
-            key={
-              editing === "new" ? `new-${parent?.id}-${category}` : editing.id
+          title={parent ? "New sub-challenge" : "New challenge"}
+          onClose={() => {
+            if (!mutationBusy.current) {
+              setCreating(false);
+              setParent(null);
             }
-            challenge={editing === "new" ? null : editing}
+          }}
+        >
+          <HierarchyCreateForm
+            key={`new-${parent?.id || "root"}-${category}`}
+            kind="challenge"
             parent={parent}
             initialCategory={category}
-            data={data}
+            categories={data.categories}
             busy={busy}
             save={async (body) => {
-              if (await act(body)) {
-                setEditing(null);
+              const saved = await act(body);
+              if (saved) {
+                setCreating(false);
                 setParent(null);
               }
+              return saved;
             }}
           />
           {error && (
@@ -607,267 +525,370 @@ export function Challenges({
     </section>
   );
 }
-function ChallengeForm({
-  challenge,
-  parent,
-  initialCategory,
+
+function ChallengeSetting({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className="task-edit-setting hierarchy-extra">
+      <summary>
+        {title}
+        <span aria-hidden="true">+</span>
+      </summary>
+      <div className="task-edit-options">{children}</div>
+    </details>
+  );
+}
+
+function ChallengeEditor({
+  detail,
   data,
   busy,
-  save,
-  compact = false,
-  extraFields = [],
+  error,
+  act,
+  olderComments,
+  onOpenTask,
+  onOpenChild,
+  onAddChild,
+  onDeleted,
 }: {
-  compact?: boolean;
-  extraFields?: string[];
-  challenge: Challenge | null;
-  parent: Challenge | null;
-  initialCategory: string;
+  detail: Detail;
   data: ChallengeData;
   busy: boolean;
-  save: (body: Record<string, unknown>) => Promise<void>;
+  error: string;
+  act: (body: Record<string, unknown>) => Promise<boolean>;
+  olderComments: () => Promise<void>;
+  onOpenTask?: (id: string) => void;
+  onOpenChild: (id: string) => void;
+  onAddChild: () => void;
+  onDeleted: () => void;
 }) {
-  const [category, setCategory] = useState(
-      challenge?.categoryId || parent?.categoryId || initialCategory,
-    ),
-    [parentId, setParentId] = useState(challenge?.parentId || parent?.id || "");
-  const [children, setChildren] = useState<
-    { key: number; title: string; reason: string; categoryId: string }[]
-  >([]);
-  function patchChild(key: number, patch: Partial<(typeof children)[number]>) {
-    setChildren((rows) =>
-      rows.map((r) => (r.key === key ? { ...r, ...patch } : r)),
-    );
-  }
-  const forbidden = new Set(challenge ? [challenge.id] : []);
+  const formId = useId();
+  const [title, setTitle] = useState(detail.title);
+  const [reason, setReason] = useState(detail.reason);
+  const [categoryId, setCategoryId] = useState(detail.categoryId);
+  const [parentId, setParentId] = useState(detail.parentId || "");
+  const [goalId, setGoalId] = useState(detail.goalId || "");
+  const [coreLearning, setCoreLearning] = useState(detail.coreLearning || "");
+  const [adding, setAdding] = useState<"task" | "log" | "journal" | null>(null);
+  const forbidden = new Set([detail.id]);
   let changed = true;
   while (changed) {
     changed = false;
-    for (const g of data.challenges)
-      if (g.parentId && forbidden.has(g.parentId) && !forbidden.has(g.id)) {
-        forbidden.add(g.id);
+    for (const item of data.challenges)
+      if (
+        item.parentId &&
+        forbidden.has(item.parentId) &&
+        !forbidden.has(item.id)
+      ) {
+        forbidden.add(item.id);
         changed = true;
       }
   }
+  const locked = busy || !!detail.archivedAt;
+  const children = data.challenges.filter(
+    (item) => item.parentId === detail.id,
+  );
   return (
-    <form
-      className="form-stack"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const f = new FormData(e.currentTarget);
-        void save({
-          action: "save",
-          ...(challenge
-            ? { id: challenge.id, version: challenge.version }
-            : {}),
-          title: f.get("title"),
-          reason: f.get("reason"),
-          coreLearning: f.get("coreLearning") ?? challenge?.coreLearning ?? "",
-          categoryId: category,
-          parentId: parentId || null,
-          goalId: f.has("goalId")
-            ? f.get("goalId") || null
-            : challenge?.goalId || null,
-          subchallenges: children
-            .filter((c) => c.title.trim())
-            .map((c) => ({
-              title: c.title,
-              ...(c.reason.trim() ? { reason: c.reason } : {}),
-              ...(c.categoryId ? { categoryId: c.categoryId } : {}),
-            })),
-        });
-      }}
+    <div
+      className="hierarchy-detail-screen task-detail-screen"
+      aria-busy={busy}
     >
-      <label className="field">
-        Challenge
-        <input
-          name="title"
-          defaultValue={challenge?.title}
-          required
-          maxLength={240}
-          autoFocus
-        />
-      </label>
-      <label className="field">
-        Why does this challenge matter?
-        <textarea
-          name="reason"
-          defaultValue={challenge?.reason || parent?.reason}
-          required
-          maxLength={20000}
-          rows={3}
-        />
-      </label>
-      {(!compact ||
-        challenge?.coreLearning ||
-        extraFields.includes("coreLearning")) && (
-        <label className="field">
-          Core learning
-          <textarea
-            name="coreLearning"
-            defaultValue={challenge?.coreLearning}
-            maxLength={20000}
-            rows={3}
-          />
-        </label>
+      {error && (
+        <p className="form-error task-edit-error" role="alert">
+          {error}
+        </p>
       )}
-      <label className="field">
-        Category / subcategory
-        <select
-          required
-          value={category}
-          onChange={(e) => {
-            setCategory(e.target.value);
+      <div className="task-edit-layout">
+        <form
+          id={formId}
+          aria-label="Edit challenge"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!locked)
+              void act({
+                action: "save",
+                id: detail.id,
+                version: detail.version,
+                title,
+                reason,
+                coreLearning,
+                categoryId,
+                parentId: parentId || null,
+                goalId: goalId || null,
+                subchallenges: [],
+              });
           }}
-        >
-          <option value="">Choose category</option>
-          {data.categories
-            .filter((c) => c.isActive && !c.archivedAt)
-            .map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.parentId
-                  ? `${data.categories.find((p) => p.id === c.parentId)?.name} / `
-                  : ""}
-                {c.name}
-              </option>
+        />
+        <section className="task-edit-main" aria-label="Challenge content">
+          <fieldset className="task-edit-content-fields" disabled={locked}>
+            <div className="task-edit-title-row hierarchy-title-row">
+              <Target
+                className="hierarchy-title-icon"
+                size={20}
+                aria-hidden="true"
+              />
+              <input
+                form={formId}
+                className="task-edit-title"
+                aria-label="Challenge name"
+                name="title"
+                required
+                maxLength={240}
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+              />
+            </div>
+            <label className="task-edit-description-label hierarchy-reason">
+              <AlignLeft size={16} aria-hidden="true" />
+              <textarea
+                form={formId}
+                className="task-edit-description"
+                aria-label="Reason"
+                name="reason"
+                placeholder="Why does this challenge matter?"
+                required
+                maxLength={20000}
+                rows={3}
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+              />
+            </label>
+          </fieldset>
+          <section className="hierarchy-children" aria-label="Sub-challenges">
+            {children.length > 0 && (
+              <h3>
+                Sub-challenges <small>{children.length}</small>
+              </h3>
+            )}
+            {children.map((child) => (
+              <button
+                className="goal-subgoal-link hierarchy-child-link"
+                key={child.id}
+                type="button"
+                disabled={busy}
+                onClick={() => onOpenChild(child.id)}
+              >
+                <span>{child.title}</span>
+                <small>{child.archivedAt ? "Archived" : ""}</small>
+              </button>
             ))}
-        </select>
-      </label>
-      {(!compact || parentId || extraFields.includes("parent")) && (
-        <label className="field">
-          Parent challenge
-          <select
-            value={parentId}
-            onChange={(e) => setParentId(e.target.value)}
-          >
-            <option value="">None — top-level challenge</option>
-            {data.challenges
-              .filter((g) => !g.archivedAt && !forbidden.has(g.id))
-              .map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.title}
-                </option>
-              ))}
-          </select>
-        </label>
-      )}
-      {(!compact ||
-        challenge?.goalId ||
-        parent?.goalId ||
-        extraFields.includes("goal")) && (
-        <label className="field">
-          Related goal
-          <select
-            name="goalId"
-            defaultValue={
-              challenge ? challenge.goalId || "" : parent?.goalId || ""
-            }
-          >
-            <option value="">None</option>
-            {data.goals
-              .filter((g) => !g.archivedAt || g.id === challenge?.goalId)
-              .map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.title}
-                  {g.archivedAt ? " (Archived)" : ""}
-                </option>
-              ))}
-          </select>
-        </label>
-      )}
-      {!compact && (
-        <section className="inline-subgoals">
-          <h3>Sub-challenges</h3>
-          {challenge &&
-            data.challenges
-              .filter((g) => g.parentId === challenge.id && !g.archivedAt)
-              .map((g) => (
-                <div className="subgoal-existing" key={g.id}>
-                  <span>{g.title}</span>
-                </div>
-              ))}
-          {children.map((c, i) => (
-            <div className="subgoal-draft" key={c.key}>
-              <div className="subgoal-draft-row">
-                <span aria-hidden="true">○</span>
-                <input
-                  aria-label={`Sub-challenge ${i + 1} name`}
-                  placeholder="Sub-challenge name"
-                  value={c.title}
-                  maxLength={240}
-                  required
-                  onChange={(e) => patchChild(c.key, { title: e.target.value })}
-                />
+            {!detail.archivedAt && (
+              <button
+                type="button"
+                className="inline-add-task"
+                disabled={busy}
+                onClick={onAddChild}
+              >
+                <Plus size={16} />
+                Add sub-challenge
+              </button>
+            )}
+          </section>
+        </section>
+        <aside className="task-edit-sidebar" aria-label="Challenge settings">
+          <fieldset className="task-edit-setting-fields" disabled={locked}>
+            <label className="field task-edit-setting">
+              <span>Category</span>
+              <select
+                form={formId}
+                aria-label="Category"
+                required
+                value={categoryId}
+                onChange={(event) => setCategoryId(event.target.value)}
+              >
+                {data.categories
+                  .filter(
+                    (item) =>
+                      (item.isActive && !item.archivedAt) ||
+                      item.id === categoryId,
+                  )
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.parentId &&
+                      data.categories.find(
+                        (parent) => parent.id === item.parentId,
+                      )?.name
+                        ? data.categories.find(
+                            (parent) => parent.id === item.parentId,
+                          )!.name + " / "
+                        : ""}
+                      {item.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field task-edit-setting">
+              <span>Parent challenge</span>
+              <select
+                form={formId}
+                aria-label="Parent challenge"
+                value={parentId}
+                onChange={(event) => setParentId(event.target.value)}
+              >
+                <option value="">None — top-level challenge</option>
+                {data.challenges
+                  .filter((item) => !item.archivedAt && !forbidden.has(item.id))
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.title}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field task-edit-setting">
+              <span>Related goal</span>
+              <select
+                form={formId}
+                aria-label="Related goal"
+                value={goalId}
+                onChange={(event) => setGoalId(event.target.value)}
+              >
+                <option value="">None</option>
+                {data.goals
+                  .filter((item) => !item.archivedAt || item.id === goalId)
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.title}
+                      {item.archivedAt ? " (Archived)" : ""}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field task-edit-setting">
+              <span>Core learning</span>
+              <textarea
+                form={formId}
+                aria-label="Core learning"
+                name="coreLearning"
+                rows={4}
+                maxLength={20000}
+                value={coreLearning}
+                onChange={(event) => setCoreLearning(event.target.value)}
+                placeholder="What have you learned?"
+              />
+            </label>
+            <button
+              className="button primary task-edit-save"
+              type="submit"
+              form={formId}
+              disabled={locked}
+            >
+              {busy ? "Saving…" : "Save changes"}
+            </button>
+          </fieldset>
+          <fieldset className="task-edit-auxiliary" disabled={busy}>
+            <ChallengeSetting
+              title={`Related tasks${detail.tasks.length ? ` · ${detail.tasks.length}` : ""}`}
+            >
+              {!detail.archivedAt && adding !== "task" && (
                 <button
                   type="button"
-                  className="icon-button"
-                  aria-label={`Remove subchallenge ${i + 1}`}
-                  onClick={() =>
-                    setChildren((rows) => rows.filter((r) => r.key !== c.key))
-                  }
+                  className="text-button"
+                  onClick={() => setAdding("task")}
                 >
-                  ×
+                  Link a task
                 </button>
-              </div>
-              <details>
-                <summary>Customize</summary>
-                <label className="field">
-                  Reason (inherits parent when empty)
-                  <textarea
-                    value={c.reason}
-                    maxLength={20000}
-                    onChange={(e) =>
-                      patchChild(c.key, { reason: e.target.value })
-                    }
-                  />
-                </label>
-                <label className="field">
-                  Category
-                  <select
-                    value={c.categoryId}
-                    onChange={(e) =>
-                      patchChild(c.key, { categoryId: e.target.value })
-                    }
-                  >
-                    <option value="">Same as parent</option>
-                    {data.categories
-                      .filter((c) => c.isActive && !c.archivedAt)
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-              </details>
+              )}
+              <ChallengeTasks
+                detail={detail}
+                busy={busy}
+                act={act}
+                onOpenTask={onOpenTask}
+                linking={adding === "task"}
+                onDone={() => setAdding(null)}
+              />
+            </ChallengeSetting>
+            <ChallengeSetting
+              title={`Logs & learning${detail.comments.length ? ` · ${detail.comments.length}` : ""}`}
+            >
+              {!detail.archivedAt &&
+                !["log", "journal"].includes(adding || "") && (
+                  <div className="goal-actions">
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => setAdding("log")}
+                    >
+                      Add a log
+                    </button>
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => setAdding("journal")}
+                    >
+                      Link a journal
+                    </button>
+                  </div>
+                )}
+              <ChallengeLogs
+                key={`${detail.id}-${adding}`}
+                detail={detail}
+                busy={busy}
+                act={act}
+                olderComments={olderComments}
+                mode={adding === "log" || adding === "journal" ? adding : null}
+                onDone={() => setAdding(null)}
+              />
+            </ChallengeSetting>
+            <div className="hierarchy-record-actions">
+              <button
+                type="button"
+                className="text-button task-edit-archive"
+                disabled={busy}
+                onClick={() => {
+                  if (
+                    detail.archivedAt ||
+                    window.confirm(
+                      "Archive this challenge and its subchallenges?",
+                    )
+                  )
+                    void act({
+                      action: detail.archivedAt ? "restore" : "archive",
+                      id: detail.id,
+                      version: detail.version,
+                    });
+                }}
+              >
+                <Archive size={15} />
+                {detail.archivedAt ? "Restore" : "Archive"}
+              </button>
+              <button
+                type="button"
+                className="text-button danger hierarchy-delete"
+                disabled={busy}
+                onClick={async () => {
+                  if (
+                    window.confirm(
+                      "Permanently delete this challenge, its subchallenges and comments? Linked tasks will be kept.",
+                    )
+                  ) {
+                    if (
+                      await act({
+                        action: "delete",
+                        id: detail.id,
+                        version: detail.version,
+                      })
+                    )
+                      onDeleted();
+                  }
+                }}
+              >
+                <Trash2 size={15} />
+                Delete
+              </button>
             </div>
-          ))}
-          <button
-            className="inline-add-task"
-            type="button"
-            disabled={busy || children.length >= 50}
-            onClick={() =>
-              setChildren((rows) => [
-                ...rows,
-                {
-                  key: Math.max(0, ...rows.map((r) => r.key)) + 1,
-                  title: "",
-                  reason: "",
-                  categoryId: "",
-                },
-              ])
-            }
-          >
-            <Plus size={16} />
-            Add sub-challenge
-          </button>
-        </section>
-      )}
-      <button className="button primary" disabled={busy}>
-        {busy ? "Saving…" : "Save challenge"}
-      </button>
-    </form>
+          </fieldset>
+        </aside>
+      </div>
+    </div>
   );
 }
+
 function ChallengeTasks({
   detail,
   busy,

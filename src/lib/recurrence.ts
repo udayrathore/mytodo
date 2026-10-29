@@ -3,11 +3,16 @@ const addDays = (date: string, days: number) =>
   new Date(new Date(date + "T00:00:00Z").getTime() + days * 86400000)
     .toISOString()
     .slice(0, 10);
-export const repeatRule = z.object({
-  unit: z.enum(["DAY", "WEEK", "MONTH"]),
-  interval: z.number().int().min(1).max(365),
-  endsOn: z.iso.date().nullable().default(null),
-});
+export const repeatRule = z
+  .object({
+    unit: z.enum(["DAY", "WEEK", "MONTH", "WEEKDAY"]),
+    interval: z.number().int().min(1).max(365),
+    endsOn: z.iso.date().nullable().default(null),
+  })
+  .refine((rule) => rule.unit !== "WEEKDAY" || rule.interval === 1, {
+    message: "Weekday repeats run every weekday.",
+    path: ["interval"],
+  });
 export type RepeatRule = z.infer<typeof repeatRule>;
 // Monthly occurrences always use the original day, clamped for short months.
 export function occurrenceDates(
@@ -16,6 +21,19 @@ export function occurrenceDates(
   from: string,
   through: string,
 ): string[] {
+  if (rule.unit === "WEEKDAY") {
+    const end = rule.endsOn && rule.endsOn < through ? rule.endsOn : through;
+    const dates: string[] = [];
+    for (
+      let day = start > from ? start : from;
+      day <= end;
+      day = addDays(day, 1)
+    ) {
+      const weekday = new Date(day + "T00:00:00Z").getUTCDay();
+      if (weekday !== 0 && weekday !== 6) dates.push(day);
+    }
+    return dates;
+  }
   const end = rule.endsOn && rule.endsOn < through ? rule.endsOn : through;
   if (end < start || end < from) return [];
   const anchor = new Date(start + "T00:00:00Z");

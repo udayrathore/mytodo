@@ -1,0 +1,304 @@
+.root {
+  display: inline-flex;
+  position: relative;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.validationInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+}
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  min-height: 35px;
+  max-width: 100%;
+  padding: 6px 10px;
+  background: #252525;
+  border: 1px solid #494949;
+  border-radius: 7px;
+  color: #ddd;
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trigger > svg {
+  flex-shrink: 0;
+}
+.trigger:hover {
+  background: #303030;
+  border-color: #6d6d6d;
+}
+.trigger.today {
+  color: #8ac79a;
+}
+.panel {
+  z-index: 150;
+  background: #252525;
+  border: 1px solid #4b4b4b;
+  border-radius: 13px;
+  box-shadow: 0 12px 48px #0008;
+  color: #eee;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: left;
+}
+.panel[hidden] {
+  display: none;
+}
+.panel button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.panel button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.panel button:focus-visible,
+.panel input:focus-visible,
+.repeat summary:focus-visible {
+  outline: 2px solid #f08a7e;
+  outline-offset: -2px;
+}
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 11px 12px;
+  border-bottom: 1px solid #414141;
+}
+.inputRow input {
+  min-width: 0;
+  width: 100%;
+  padding: 7px 0;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  font-size: 15px;
+}
+.inputRow > button,
+.monthHeading button {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 29px;
+  height: 29px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+}
+.inputRow > button:hover,
+.monthHeading button:hover {
+  background: #393939;
+}
+.error {
+  margin: 0;
+  padding: 8px 13px;
+  color: #ffaaa1;
+  font-size: 12px;
+}
+.shortcuts {
+  padding: 7px;
+  border-bottom: 1px solid #414141;
+}
+.shortcuts > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  text-align: left;
+}
+.shortcuts > button:hover:not(:disabled) {
+  background: #353535;
+}
+.shortcutName {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+.shortcutName svg {
+  color: #e6a85f;
+  flex-shrink: 0;
+}
+.shortcuts small {
+  color: #a3a3a3;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.calendar {
+  padding: 13px 14px 15px;
+}
+.monthHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 11px;
+  gap: 8px;
+}
+.monthHeading > strong {
+  font-size: 15px;
+}
+.monthHeading > div {
+  display: flex;
+}
+.weekdays,
+.days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+}
+.weekdays {
+  margin-bottom: 7px;
+  color: #aaa;
+  text-align: center;
+  font-size: 12px;
+}
+.days > button {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+}
+.days > button:hover:not(:disabled) {
+  background: #444;
+}
+.days > button.otherMonth {
+  color: #888;
+}
+.days > button.currentDay {
+  color: #ffb2a8;
+  border-color: #9d5c54;
+}
+.days > button.selected {
+  background: #dc6a5c;
+  border-color: #dc6a5c;
+  color: #fff;
+  font-weight: 700;
+}
+.days > button.selected:hover {
+  background: #ed7a6d;
+}
+.timeRow {
+  padding: 11px 14px;
+  border-top: 1px solid #414141;
+}
+.timeRow label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.timeRow input {
+  margin-left: auto;
+  width: 115px;
+  color: inherit;
+  background: #202020;
+  border: 1px solid #4b4b4b;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.repeat {
+  position: relative;
+  border-top: 1px solid #414141;
+}
+.repeat > summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  list-style: none;
+  margin: 10px 14px;
+  padding: 8px 12px;
+  border: 1px solid #4b4b4b;
+  border-radius: 7px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.repeat > summary::-webkit-details-marker {
+  display: none;
+}
+.repeat[open] > summary {
+  color: #ffb2a8;
+}
+.repeat > div {
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 8px;
+  right: 8px;
+  z-index: 3;
+  max-height: min(440px, calc(100dvh - 190px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  border: 1px solid #505050;
+  border-radius: 10px;
+  background: #2c2c2c;
+  box-shadow: 0 8px 28px #0008;
+}
+:global([data-mode="work"]) .trigger {
+  background: #1a3043;
+  border-color: #47627a;
+  color: #d5e9f7;
+}
+:global([data-mode="work"]) .repeat > div {
+  background: #203b51;
+  border-color: #57758c;
+}
+:global([data-mode="work"]) .panel {
+  background: #1a3043;
+  border-color: #47627a;
+  color: #e0edf6;
+}
+:global([data-mode="work"]) .shortcuts > button:hover:not(:disabled),
+:global([data-mode="work"]) .days > button:hover:not(:disabled) {
+  background: #2a475f;
+}
+:global([data-mode="work"]) .days > button.selected {
+  background: #4b92c6;
+  border-color: #6fb6e9;
+  color: #fff;
+}
+:global([data-mode="work"]) .days > button.currentDay {
+  border-color: #7ac8ff;
+  color: #bde8ff;
+}
+@media (max-width: 600px) {
+  .trigger {
+    min-height: 38px;
+  }
+  .panel {
+    font-size: 14px;
+  }
+  .inputRow input {
+    font-size: 16px;
+  }
+}

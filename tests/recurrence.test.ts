@@ -45,3 +45,24 @@ test("custom windows respect interval, inclusive end, and requested range", () =
     false,
   );
 });
+
+test("weekday repeats skip weekends and yearly schedules preserve their calendar anchor", () => {
+  assert.deepEqual(
+    occurrenceDates(
+      "2026-10-29",
+      { unit: "WEEKDAY", interval: 1, endsOn: null },
+      "2026-10-29",
+      "2026-11-04",
+    ),
+    ["2026-10-29", "2026-10-30", "2026-11-02", "2026-11-03", "2026-11-04"],
+  );
+  assert.deepEqual(
+    occurrenceDates(
+      "2024-02-29",
+      { unit: "MONTH", interval: 12, endsOn: null },
+      "2024-02-29",
+      "2028-03-01",
+    ),
+    ["2024-02-29", "2025-02-28", "2026-02-28", "2027-02-28", "2028-02-29"],
+  );
+});

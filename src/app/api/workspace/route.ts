@@ -4,8 +4,10 @@ import { workspaceQuery } from "@/lib/workspace-query";
 import { getWorkspace } from "@/lib/workspace";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
+  const started = performance.now();
   try {
     const user = await requireUser();
+    const authenticated = performance.now();
     const parsed = workspaceQuery.safeParse(
       Object.fromEntries(new URL(request.url).searchParams),
     );
@@ -14,8 +16,13 @@ export async function GET(request: Request) {
         { error: "Invalid workspace query" },
         { status: 400 },
       );
-    return NextResponse.json(await getWorkspace(user, parsed.data), {
-      headers: { "Cache-Control": "private, no-store" },
+    const data = await getWorkspace(user, parsed.data);
+    const finished = performance.now();
+    return NextResponse.json(data, {
+      headers: {
+        "Cache-Control": "private, no-store",
+        "Server-Timing": `auth;dur=${(authenticated - started).toFixed(1)}, workspace;dur=${(finished - authenticated).toFixed(1)}, total;dur=${(finished - started).toFixed(1)}`,
+      },
     });
   } catch (e) {
     return NextResponse.json(

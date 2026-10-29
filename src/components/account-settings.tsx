@@ -1,5 +1,10 @@
 "use client";
 import { useState } from "react";
+import dynamic from "next/dynamic";
+const PwaSettings = dynamic(
+  () => import("./pwa-settings").then((module) => module.PwaSettings),
+  { loading: () => <p className="muted small">Loading app settings…</p> },
+);
 import { useRemote } from "./use-remote";
 export function AccountSettings() {
   const account = useRemote<{ recoveryEmail: string | null }>("/api/account");
@@ -69,12 +74,15 @@ export function AccountSettings() {
       </form>
       <p>
         Recovery email:{" "}
-        {account.data?.recoveryEmail || account.error || "Loading…"}
+        {account.loading
+          ? "Loading…"
+          : account.error || account.data?.recoveryEmail || "Not configured"}
       </p>
       <p className="muted">
         Email recovery is not enabled yet. An email service must be connected to
         send recovery links.
       </p>
+      <PwaSettings />
     </section>
   );
 }

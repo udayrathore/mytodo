@@ -1,4 +1,5 @@
 "use client";
+import { DatePicker } from "./date-picker";
 import { useState} from "react";
 import type { Workspace} from "@/lib/workspace";
 import { addDays,  descendants, weekOf} from "@/lib/domain";
@@ -122,23 +123,27 @@ export function CategoryDistribution({ data }: { data: Workspace }) {
           </Field>
           {preset === "custom" && (
             <>
-              <Field label="From">
-                <input
-                  type="date"
+              <div className="field">
+                <span>From</span>
+                <DatePicker
+                  label="From"
+                  today={data.today}
                   value={customFrom}
                   max={customTo || data.today}
-                  onChange={(e) => setCustomFrom(e.target.value)}
+                  onChange={setCustomFrom}
                 />
-              </Field>
-              <Field label="To">
-                <input
-                  type="date"
+              </div>
+              <div className="field">
+                <span>To</span>
+                <DatePicker
+                  label="To"
+                  today={data.today}
                   value={customTo}
                   min={customFrom}
                   max={data.today}
-                  onChange={(e) => setCustomTo(e.target.value)}
+                  onChange={setCustomTo}
                 />
-              </Field>
+              </div>
             </>
           )}
           <Field label="Measure">

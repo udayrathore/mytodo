@@ -1,7 +1,21 @@
 "use client";
-import { useEffect, useState, useCallback, useRef } from "react";
-import { Plus, MessageSquare, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+  useId,
+  type ReactNode,
+} from "react";
+import {
+  Plus,
+  AlignLeft,
+  Target,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { Drawer } from "./ui";
+import { HierarchyCreateForm } from "./hierarchy-create-form";
 type Goal = {
   id: string;
   title: string;
@@ -77,12 +91,15 @@ export function Goals({ onOpenTask }: { onOpenTask?: (id: string) => void }) {
     [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null),
     [detail, setDetail] = useState<Detail | null>(null),
-    [editing, setEditing] = useState<Goal | "new" | null>(null),
+    [editing, setEditing] = useState<"new" | null>(null),
     [parent, setParent] = useState<Goal | null>(null),
     [category, setCategory] = useState(""),
     [drag, setDrag] = useState<string | null>(null),
     [over, setOver] = useState<string | null>(null);
 
+  const saving = useRef(false);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
   const refresh = useCallback(async () => {
     setData(await read<GoalData>("/api/goals"));
   }, []);
@@ -115,7 +132,8 @@ export function Goals({ onOpenTask }: { onOpenTask?: (id: string) => void }) {
     };
   }, [selected]);
   async function olderComments() {
-    if (!detail?.nextCommentsCursor || busy) return;
+    if (!detail?.nextCommentsCursor || busy || saving.current) return;
+    saving.current = true;
     setBusy(true);
     const id = detail.id;
     try {
@@ -134,24 +152,58 @@ export function Goals({ onOpenTask }: { onOpenTask?: (id: string) => void }) {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load comments.");
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   }
   async function act(body: Record<string, unknown>) {
-    if (busy) return false;
+    if (saving.current || busy) return false;
+    saving.current = true;
     setBusy(true);
     setError("");
+    const selectedId = selectedRef.current;
     try {
-      await write(body);
-      try {
-        await refresh();
-        if (selected && body.action !== "delete")
-          setDetail(
-            (await read<{ goal: Detail }>(`/api/goals?id=${selected}`)).goal,
+      const committed = await write(body);
+      const saved = committed.result as Partial<Detail> | undefined;
+      if (selectedId && body.action !== "delete") {
+        if (saved?.id === selectedId && typeof saved.version === "number")
+          setDetail((old) =>
+            old?.id === selectedId ? { ...old, ...saved } : old,
           );
+        else if (
+          body.id === selectedId &&
+          ["archive", "restore"].includes(String(body.action))
+        )
+          setDetail((old) =>
+            old?.id === selectedId
+              ? {
+                  ...old,
+                  archivedAt:
+                    body.action === "archive" ? new Date().toISOString() : null,
+                  version: old.version + 1,
+                }
+              : old,
+          );
+      }
+      try {
+        await Promise.all([
+          refresh(),
+          selectedId && body.action !== "delete"
+            ? read<{ goal: Detail }>(`/api/goals?id=${selectedId}`).then(
+                (next) => {
+                  if (selectedRef.current === selectedId)
+                    setDetail((old) =>
+                      !old || next.goal.version >= old.version
+                        ? next.goal
+                        : old,
+                    );
+                },
+              )
+            : Promise.resolve(),
+        ]);
       } catch {
         setError(
-          "Saved. Could not reload the view; refresh to see the latest records.",
+          "Saved. Could not reload the view; your editing draft is kept here.",
         );
       }
       return true;
@@ -159,6 +211,7 @@ export function Goals({ onOpenTask }: { onOpenTask?: (id: string) => void }) {
       setError(e instanceof Error ? e.message : "Could not save.");
       return false;
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   }
@@ -242,6 +295,7 @@ export function Goals({ onOpenTask }: { onOpenTask?: (id: string) => void }) {
         >
           <button
             className="goal-card-open"
+            disabled={busy}
             onClick={() => {
               setError("");
               setSelected(g.id);
@@ -276,7 +330,9 @@ export function Goals({ onOpenTask }: { onOpenTask?: (id: string) => void }) {
         </label>
         <button
           className="button primary"
+          disabled={busy}
           onClick={() => {
+            setError("");
             setParent(null);
             setCategory("");
             setEditing("new");
@@ -361,7 +417,9 @@ export function Goals({ onOpenTask }: { onOpenTask?: (id: string) => void }) {
               {!archive && c.isActive && !c.archivedAt && (
                 <button
                   className="inline-add-task"
+                  disabled={busy}
                   onClick={() => {
+                    setError("");
                     setParent(null);
                     setCategory(c.id);
                     setEditing("new");
@@ -374,219 +432,74 @@ export function Goals({ onOpenTask }: { onOpenTask?: (id: string) => void }) {
             </section>
           ))}
       </div>
-      {selected && !editing && (
+      {selected && (
         <Drawer
           popup
-          title="Goal"
+          title="Goal details"
           onClose={() => {
-            setSelected(null);
-            setDetail(null);
+            if (!busy) {
+              setSelected(null);
+              setDetail(null);
+            }
           }}
         >
           {detail ? (
-            <>
-              <h2>{detail.title}</h2>
-              <p className="goal-detail-reason">{detail.reason}</p>
-              <div className="goal-card-meta">
-                {statusName(detail.status)} · {detail.progress}%
-                {detail.estimatedMinutes
-                  ? ` · ${detail.estimatedMinutes / 60}h estimated`
-                  : ""}
-              </div>
-              <progress
-                className="goal-detail-progress"
-                value={detail.progress}
-                max={100}
-                aria-label="Goal progress"
-              />
-              <div className="goal-actions">
-                {!detail.archivedAt && (
-                  <>
-                    <button
-                      className="button"
-                      onClick={() => setEditing(detail)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="button"
-                      onClick={() => {
-                        setParent(detail);
-                        setCategory(detail.categoryId);
-                        setEditing("new");
-                      }}
-                    >
-                      Add subgoal
-                    </button>
-                  </>
-                )}
-                <button
-                  className="button"
-                  disabled={busy}
-                  onClick={() => {
-                    if (
-                      detail.archivedAt ||
-                      window.confirm("Archive this goal and its subgoals?")
-                    )
-                      void act({
-                        action: detail.archivedAt ? "restore" : "archive",
-                        id: detail.id,
-                        version: detail.version,
-                      });
-                  }}
-                >
-                  {detail.archivedAt ? "Restore" : "Archive"}
-                </button>
-                <button
-                  className="text-button"
-                  disabled={busy}
-                  onClick={async () => {
-                    if (
-                      window.confirm(
-                        "Permanently delete this goal, its subgoals and comments? Linked tasks will be kept.",
-                      )
-                    )
-                      if (
-                        await act({
-                          action: "delete",
-                          id: detail.id,
-                          version: detail.version,
-                        })
-                      ) {
-                        setSelected(null);
-                        setDetail(null);
-                      }
-                  }}
-                >
-                  Delete
-                </button>
-              </div>
-              {data.goals.some((g) => g.parentId === detail.id) && (
-                <section className="subsection">
-                  <h3>Subgoals</h3>
-                  {data.goals
-                    .filter((g) => g.parentId === detail.id)
-                    .map((g) => (
-                      <button
-                        className="goal-subgoal-link"
-                        key={g.id}
-                        onClick={() => setSelected(g.id)}
-                      >
-                        {g.title}
-                        <span>
-                          {g.progress}%{g.archivedAt ? " · Archived" : ""}
-                        </span>
-                      </button>
-                    ))}
-                </section>
-              )}
-              <GoalTasks
-                detail={detail}
-                busy={busy}
-                act={act}
-                onOpenTask={onOpenTask}
-              />
-              <section className="subsection">
-                <h3>
-                  <MessageSquare size={15} /> Comments & check-ins
-                </h3>
-                {!detail.archivedAt && (
-                  <form
-                    className="form-stack"
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      const form = e.currentTarget,
-                        f = new FormData(form);
-                      if (
-                        await act({
-                          action: "comment",
-                          id: detail.id,
-                          version: detail.version,
-                          body: f.get("body"),
-                          ...(f.get("progress") !== ""
-                            ? { progress: Number(f.get("progress")) }
-                            : {}),
-                        })
-                      )
-                        form.reset();
-                    }}
-                  >
-                    <textarea
-                      name="body"
-                      aria-label="Comment or check-in"
-                      placeholder="Leave a comment or record a check-in…"
-                      required
-                      maxLength={20000}
-                      rows={3}
-                    />
-                    <label className="field">
-                      Progress update (optional)
-                      <input
-                        name="progress"
-                        type="number"
-                        min={0}
-                        max={100}
-                        placeholder="0–100%"
-                      />
-                    </label>
-                    <button className="button" disabled={busy}>
-                      Post
-                    </button>
-                  </form>
-                )}
-                {detail.comments.map((c) => (
-                  <article className="goal-comment" key={c.id}>
-                    <small>
-                      {new Date(c.createdAt).toLocaleString()}
-                      {c.progress !== null ? ` · Check-in: ${c.progress}%` : ""}
-                    </small>
-                    <p>{c.body}</p>
-                  </article>
-                ))}
-                {detail.nextCommentsCursor && (
-                  <button
-                    className="button"
-                    disabled={busy}
-                    onClick={() => void olderComments()}
-                  >
-                    Older comments
-                  </button>
-                )}
-                {!detail.comments.length && (
-                  <p className="muted">No check-ins yet.</p>
-                )}
-              </section>
-              {error && (
-                <p role="alert" className="form-error">
-                  {error}
-                </p>
-              )}
-            </>
+            <GoalEditor
+              key={detail.id}
+              goal={detail}
+              data={data}
+              busy={busy}
+              error={error}
+              act={act}
+              onOpenTask={onOpenTask}
+              onOpenChild={(id) => {
+                if (!busy) {
+                  setError("");
+                  setSelected(id);
+                }
+              }}
+              onAddChild={() => {
+                setError("");
+                setParent(detail);
+                setCategory(detail.categoryId);
+                setEditing("new");
+              }}
+              onOlderComments={olderComments}
+              onDeleted={() => {
+                setSelected(null);
+                setDetail(null);
+              }}
+            />
           ) : (
-            <p>{error || "Loading goal…"}</p>
+            <p role="status">{error || "Loading goal…"}</p>
           )}
         </Drawer>
       )}
       {editing && (
         <Drawer
           popup
-          title={editing === "new" ? "New goal" : "Edit goal"}
-          onClose={() => setEditing(null)}
-        >
-          <GoalForm
-            key={
-              editing === "new" ? `new-${parent?.id}-${category}` : editing.id
+          title={parent ? "New subgoal" : "New goal"}
+          onClose={() => {
+            if (!busy) {
+              setEditing(null);
+              setParent(null);
             }
-            goal={editing === "new" ? null : editing}
+          }}
+        >
+          <HierarchyCreateForm
+            key={`new-${parent?.id || "root"}-${category}`}
+            kind="goal"
             parent={parent}
             initialCategory={category}
-            data={data}
+            categories={data.categories}
             busy={busy}
             save={async (body) => {
-              if (await act(body)) {
+              const ok = await act(body);
+              if (ok) {
                 setEditing(null);
                 setParent(null);
               }
+              return ok;
             }}
           />
           {error && (
@@ -599,303 +512,509 @@ export function Goals({ onOpenTask }: { onOpenTask?: (id: string) => void }) {
     </section>
   );
 }
-function GoalForm({
+type GoalDraft = {
+  title: string;
+  reason: string;
+  categoryId: string;
+  parentId: string;
+  status: string;
+  progress: number;
+  hours: string;
+};
+function goalDraft(goal: Goal): GoalDraft {
+  return {
+    title: goal.title,
+    reason: goal.reason,
+    categoryId: goal.categoryId,
+    parentId: goal.parentId || "",
+    status: goal.status,
+    progress: goal.progress,
+    hours: goal.estimatedMinutes ? String(goal.estimatedMinutes / 60) : "",
+  };
+}
+function GoalSidebarSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className="task-edit-setting hierarchy-sidebar-details">
+      <summary>
+        {title}
+        <span aria-hidden="true">+</span>
+      </summary>
+      <div className="task-edit-options">{children}</div>
+    </details>
+  );
+}
+function GoalEditor({
   goal,
-  parent,
-  initialCategory,
   data,
   busy,
-  save,
+  error,
+  act,
+  onOpenTask,
+  onOpenChild,
+  onAddChild,
+  onOlderComments,
+  onDeleted,
 }: {
-  goal: Goal | null;
-  parent: Goal | null;
-  initialCategory: string;
+  goal: Detail;
   data: GoalData;
   busy: boolean;
-  save: (body: Record<string, unknown>) => Promise<void>;
+  error: string;
+  act: (body: Record<string, unknown>) => Promise<boolean>;
+  onOpenTask?: (id: string) => void;
+  onOpenChild: (id: string) => void;
+  onAddChild: () => void;
+  onOlderComments: () => Promise<void>;
+  onDeleted: () => void;
 }) {
-  const [category, setCategory] = useState(
-      goal?.categoryId || parent?.categoryId || initialCategory,
-    ),
-    [parentId, setParentId] = useState(goal?.parentId || parent?.id || "");
-  const [hours, setHours] = useState(
-    goal?.estimatedMinutes
-      ? String(goal.estimatedMinutes / 60)
-      : parent?.estimatedMinutes
-        ? String(parent.estimatedMinutes / 60)
-        : "",
-  );
-  const [children, setChildren] = useState<
-    {
-      key: number;
-      title: string;
-      hours: string | null;
-      reason: string;
-      categoryId: string;
-      progress: number;
-    }[]
-  >([]);
-  function patchChild(key: number, patch: Partial<(typeof children)[number]>) {
-    setChildren((rows) =>
-      rows.map((r) => (r.key === key ? { ...r, ...patch } : r)),
-    );
+  const formId = useId();
+  const [draft, setDraft] = useState(() => goalDraft(goal));
+  const baseline = useRef(goalDraft(goal));
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const [conflict, setConflict] = useState(false);
+  const submitting = useRef(false);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    const before = baseline.current;
+    const next = goalDraft(goal);
+    baseline.current = next;
+    if (!submitting.current) {
+      const previous = draftRef.current;
+      const merged = { ...previous };
+      let changedDraft = false;
+      for (const key of Object.keys(next) as (keyof GoalDraft)[]) {
+        if (previous[key] === before[key])
+          (merged as Record<string, unknown>)[key] = next[key];
+        else if (next[key] !== before[key] && next[key] !== previous[key])
+          changedDraft = true;
+      }
+      if (changedDraft) setConflict(true);
+      setDraft(merged);
+    }
+  }, [goal]);
+  function patch(values: Partial<GoalDraft>) {
+    setSaved(false);
+    setDraft((old) => ({ ...old, ...values }));
   }
-  const forbidden = new Set(goal ? [goal.id] : []);
+  const forbidden = new Set([goal.id]);
   let changed = true;
   while (changed) {
     changed = false;
-    for (const g of data.goals)
-      if (g.parentId && forbidden.has(g.parentId) && !forbidden.has(g.id)) {
-        forbidden.add(g.id);
+    for (const candidate of data.goals)
+      if (
+        candidate.parentId &&
+        forbidden.has(candidate.parentId) &&
+        !forbidden.has(candidate.id)
+      ) {
+        forbidden.add(candidate.id);
         changed = true;
       }
   }
+  const children = data.goals.filter(
+    (candidate) => candidate.parentId === goal.id,
+  );
+  const archived = !!goal.archivedAt;
+  async function save() {
+    if (busy || submitting.current || archived || conflict) return;
+    submitting.current = true;
+    setSaved(false);
+    try {
+      const ok = await act({
+        action: "save",
+        id: goal.id,
+        version: goal.version,
+        title: draft.title.trim(),
+        reason: draft.reason.trim(),
+        categoryId: draft.categoryId,
+        parentId: draft.parentId || null,
+        status: draft.status,
+        progress: draft.progress,
+        estimatedMinutes: draft.hours
+          ? Math.round(Number(draft.hours) * 60)
+          : null,
+        subgoals: [],
+      });
+      if (ok) {
+        const progress = draft.status === "COMPLETED" ? 100 : draft.progress;
+        const normalized = {
+          ...draft,
+          title: draft.title.trim(),
+          reason: draft.reason.trim(),
+          progress,
+          status:
+            progress === 100
+              ? "COMPLETED"
+              : progress > 0
+                ? "STARTED"
+                : draft.status,
+        };
+        baseline.current = normalized;
+        setDraft(normalized);
+        setSaved(true);
+      }
+    } finally {
+      submitting.current = false;
+    }
+  }
   return (
-    <form
-      className="form-stack"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const f = new FormData(e.currentTarget);
-        void save({
-          action: "save",
-          ...(goal ? { id: goal.id, version: goal.version } : {}),
-          title: f.get("title"),
-          reason: f.get("reason"),
-          categoryId: category,
-          parentId: parentId || null,
-          status: f.get("status"),
-          progress: Number(f.get("progress")),
-          estimatedMinutes: hours ? Math.round(Number(hours) * 60) : null,
-          subgoals: children
-            .filter((c) => c.title.trim())
-            .map((c) => ({
-              title: c.title,
-              ...(c.reason.trim() ? { reason: c.reason } : {}),
-              ...(c.categoryId ? { categoryId: c.categoryId } : {}),
-              progress: c.progress,
-              estimatedMinutes:
-                (c.hours ?? hours)
-                  ? Math.round(Number(c.hours ?? hours) * 60)
-                  : null,
-            })),
-        });
-      }}
-    >
-      <label className="field">
-        Goal
-        <input
-          name="title"
-          defaultValue={goal?.title}
-          required
-          maxLength={240}
-          autoFocus
-        />
-      </label>
-      <label className="field">
-        Why does this goal matter?
-        <textarea
-          name="reason"
-          defaultValue={goal?.reason || parent?.reason}
-          required
-          maxLength={20000}
-          rows={3}
-        />
-      </label>
-      <label className="field">
-        Category / subcategory
-        <select
-          required
-          value={category}
-          onChange={(e) => {
-            setCategory(e.target.value);
+    <div className="task-detail-screen hierarchy-detail-screen">
+      {(error || conflict) && (
+        <p className="form-error task-edit-error" role="alert">
+          {error ||
+            "This goal changed while you were editing. Your draft is kept here; reopen the goal to load its latest version before saving."}
+        </p>
+      )}
+      <div className="task-edit-layout">
+        <form
+          id={formId}
+          aria-label="Edit goal"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
           }}
+        />
+        <section
+          className="task-edit-main hierarchy-edit-main"
+          aria-label="Goal content"
         >
-          <option value="">Choose category</option>
-          {data.categories
-            .filter((c) => c.isActive && !c.archivedAt)
-            .map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.parentId
-                  ? `${data.categories.find((p) => p.id === c.parentId)?.name} / `
-                  : ""}
-                {c.name}
-              </option>
-            ))}
-        </select>
-      </label>
-      <label className="field">
-        Parent goal
-        <select value={parentId} onChange={(e) => setParentId(e.target.value)}>
-          <option value="">None — top-level goal</option>
-          {data.goals
-            .filter((g) => !g.archivedAt && !forbidden.has(g.id))
-            .map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.title}
-              </option>
-            ))}
-        </select>
-      </label>
-      <div className="goal-form-row">
-        <label className="field">
-          Status
-          <select name="status" defaultValue={goal?.status || "NOT_STARTED"}>
-            <option value="NOT_STARTED">Not started</option>
-            <option value="STARTED">Started</option>
-            <option value="COMPLETED">Completed</option>
-          </select>
-        </label>
-        <label className="field">
-          Progress (%)
-          <input
-            name="progress"
-            type="number"
-            min={0}
-            max={100}
-            defaultValue={goal?.progress || 0}
-            required
-          />
-        </label>
-        <label className="field">
-          Estimated hours
-          <input
-            name="hours"
-            type="number"
-            min={0.1}
-            max={166666}
-            step={0.1}
-            value={hours}
-            onChange={(e) => setHours(e.target.value)}
-          />
-        </label>
-      </div>
-      <section className="inline-subgoals">
-        <h3>Subgoals</h3>
-        {goal &&
-          data.goals
-            .filter((g) => g.parentId === goal.id && !g.archivedAt)
-            .map((g) => (
-              <div className="subgoal-existing" key={g.id}>
-                <span
-                  aria-label={g.progress === 100 ? "Completed" : "Incomplete"}
-                >
-                  {g.progress === 100 ? "✓" : "○"}
-                </span>
-                <span>{g.title}</span>
-                <small>
-                  {g.progress}% ·{" "}
-                  {g.estimatedMinutes
-                    ? `${g.estimatedMinutes / 60}h`
-                    : "No estimate"}
-                </small>
-              </div>
-            ))}
-        {children.map((c, i) => (
-          <div className="subgoal-draft" key={c.key}>
-            <div className="subgoal-draft-row">
-              <span aria-hidden="true">○</span>
-              <input
-                aria-label={`Subgoal ${i + 1} name`}
-                placeholder="Subgoal name"
-                value={c.title}
-                maxLength={240}
-                required
-                onChange={(e) => patchChild(c.key, { title: e.target.value })}
+          <fieldset
+            className="task-edit-content-fields"
+            disabled={busy || archived}
+          >
+            <div className="task-edit-title-row">
+              <Target
+                className="hierarchy-title-icon"
+                size={20}
+                aria-hidden="true"
               />
-              <label className="subgoal-hours">
-                <input
-                  aria-label={`Subgoal ${i + 1} estimated hours`}
-                  type="number"
-                  min={0.1}
-                  max={166666}
-                  step={0.1}
-                  value={c.hours ?? hours}
-                  onChange={(e) => patchChild(c.key, { hours: e.target.value })}
-                />
-                h
-              </label>
+              <input
+                className="task-edit-title hierarchy-title"
+                form={formId}
+                name="title"
+                aria-label="Goal name"
+                value={draft.title}
+                onChange={(event) => patch({ title: event.target.value })}
+                required
+                maxLength={240}
+              />
+            </div>
+            <label className="task-edit-description-label">
+              <AlignLeft size={16} aria-hidden="true" />
+              <textarea
+                className="task-edit-description hierarchy-reason"
+                form={formId}
+                name="reason"
+                aria-label="Goal reason"
+                placeholder="Why does this goal matter?"
+                value={draft.reason}
+                onChange={(event) => patch({ reason: event.target.value })}
+                required
+                maxLength={20000}
+                rows={3}
+              />
+            </label>
+          </fieldset>
+          <section
+            className="task-checklist hierarchy-children"
+            aria-label="Subgoals"
+          >
+            {children.length > 0 && (
+              <h3 className="task-checklist-heading">
+                Subgoals{" "}
+                <small>
+                  {
+                    children.filter((child) => child.status === "COMPLETED")
+                      .length
+                  }
+                  /{children.length}
+                </small>
+              </h3>
+            )}
+            {children.map((child) => (
+              <button
+                key={child.id}
+                type="button"
+                className="goal-subgoal-link hierarchy-child-row"
+                disabled={busy}
+                onClick={() => onOpenChild(child.id)}
+              >
+                <span
+                  className={child.status === "COMPLETED" ? "is-complete" : ""}
+                >
+                  {child.title}
+                </span>
+                <small>
+                  {child.progress}%{child.archivedAt ? " · Archived" : ""}
+                </small>
+              </button>
+            ))}
+            {!archived && (
               <button
                 type="button"
-                className="icon-button"
-                aria-label={`Remove subgoal ${i + 1}`}
-                onClick={() =>
-                  setChildren((rows) => rows.filter((r) => r.key !== c.key))
-                }
+                className="task-checklist-add text-button"
+                disabled={busy}
+                onClick={onAddChild}
               >
-                ×
+                <Plus size={16} />
+                Add subgoal
+              </button>
+            )}
+          </section>
+        </section>
+        <aside
+          className="task-edit-sidebar hierarchy-edit-sidebar"
+          aria-label="Goal settings"
+        >
+          <fieldset
+            className="task-edit-setting-fields"
+            disabled={busy || archived}
+          >
+            <label className="field task-edit-setting">
+              <span>Category</span>
+              <select
+                form={formId}
+                name="categoryId"
+                value={draft.categoryId}
+                onChange={(event) => patch({ categoryId: event.target.value })}
+                required
+              >
+                {data.categories
+                  .filter(
+                    (category) =>
+                      (category.isActive && !category.archivedAt) ||
+                      category.id === draft.categoryId,
+                  )
+                  .map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {data.categories.find(
+                        (parent) => parent.id === category.parentId,
+                      )?.name
+                        ? data.categories.find(
+                            (parent) => parent.id === category.parentId,
+                          )?.name + " / "
+                        : ""}
+                      {category.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field task-edit-setting">
+              <span>Parent goal</span>
+              <select
+                form={formId}
+                name="parentId"
+                value={draft.parentId}
+                onChange={(event) => patch({ parentId: event.target.value })}
+              >
+                <option value="">None — top-level goal</option>
+                {data.goals
+                  .filter(
+                    (candidate) =>
+                      !candidate.archivedAt && !forbidden.has(candidate.id),
+                  )
+                  .map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.title}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field task-edit-setting">
+              <span>Status</span>
+              <select
+                form={formId}
+                name="status"
+                value={draft.status}
+                onChange={(event) => patch({ status: event.target.value })}
+              >
+                <option value="NOT_STARTED">Not started</option>
+                <option value="STARTED">Started</option>
+                <option value="COMPLETED">Completed</option>
+              </select>
+            </label>
+            <label className="field task-edit-setting">
+              <span>Progress (%)</span>
+              <input
+                form={formId}
+                name="progress"
+                type="number"
+                min={0}
+                max={100}
+                required
+                value={draft.progress}
+                onChange={(event) =>
+                  patch({ progress: Number(event.target.value) })
+                }
+              />
+              <progress
+                className="goal-detail-progress"
+                value={draft.progress}
+                max={100}
+                aria-label="Goal progress"
+              />
+            </label>
+            <label className="field task-edit-setting">
+              <span>Estimated hours</span>
+              <input
+                form={formId}
+                name="hours"
+                type="number"
+                min={0.1}
+                max={166666}
+                step={0.1}
+                value={draft.hours}
+                onChange={(event) => patch({ hours: event.target.value })}
+                placeholder="Optional"
+              />
+            </label>
+            {!archived && (
+              <button
+                type="submit"
+                form={formId}
+                className="button primary task-edit-save"
+                disabled={busy || conflict}
+              >
+                {busy ? "Saving…" : "Save changes"}
+              </button>
+            )}
+          </fieldset>
+          {saved && (
+            <p role="status" className="muted small hierarchy-save-notice">
+              Saved.
+            </p>
+          )}
+          <fieldset className="task-edit-auxiliary" disabled={busy}>
+            <GoalSidebarSection title="Related tasks">
+              <GoalTasks
+                detail={goal}
+                busy={busy}
+                act={act}
+                onOpenTask={onOpenTask}
+              />
+            </GoalSidebarSection>
+            <GoalSidebarSection title="Comments & check-ins">
+              {!archived && (
+                <form
+                  className="form-stack"
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    if (busy) return;
+                    const form = event.currentTarget,
+                      fields = new FormData(form);
+                    if (
+                      await act({
+                        action: "comment",
+                        id: goal.id,
+                        version: goal.version,
+                        body: fields.get("body"),
+                        ...(fields.get("progress") !== ""
+                          ? { progress: Number(fields.get("progress")) }
+                          : {}),
+                      })
+                    )
+                      form.reset();
+                  }}
+                >
+                  <label className="field">
+                    <span>Comment or check-in</span>
+                    <textarea
+                      name="body"
+                      aria-label="Comment or check-in"
+                      placeholder="Leave a comment or record a check-in…"
+                      required
+                      maxLength={20000}
+                      rows={3}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Progress update (optional)</span>
+                    <input
+                      name="progress"
+                      type="number"
+                      min={0}
+                      max={100}
+                      placeholder="0–100%"
+                    />
+                  </label>
+                  <button className="button" disabled={busy}>
+                    Post
+                  </button>
+                </form>
+              )}
+              {goal.comments.map((comment) => (
+                <article className="goal-comment" key={comment.id}>
+                  <small>
+                    {new Date(comment.createdAt).toLocaleString()}
+                    {comment.progress !== null
+                      ? ` · Check-in: ${comment.progress}%`
+                      : ""}
+                  </small>
+                  <p>{comment.body}</p>
+                </article>
+              ))}
+              {goal.nextCommentsCursor && (
+                <button
+                  className="button"
+                  disabled={busy}
+                  onClick={() => void onOlderComments()}
+                >
+                  Older comments
+                </button>
+              )}
+              {!goal.comments.length && (
+                <p className="muted small">No check-ins yet.</p>
+              )}
+            </GoalSidebarSection>
+            <div className="task-edit-setting hierarchy-record-actions">
+              <button
+                className="text-button"
+                disabled={busy}
+                onClick={() => {
+                  if (
+                    archived ||
+                    window.confirm("Archive this goal and its subgoals?")
+                  )
+                    void act({
+                      action: archived ? "restore" : "archive",
+                      id: goal.id,
+                      version: goal.version,
+                    });
+                }}
+              >
+                {archived ? "Restore from archive" : "Archive goal"}
+              </button>
+              <button
+                className="text-button danger"
+                disabled={busy}
+                onClick={async () => {
+                  if (
+                    window.confirm(
+                      "Permanently delete this goal, its subgoals and comments? Linked tasks will be kept.",
+                    )
+                  )
+                    if (
+                      await act({
+                        action: "delete",
+                        id: goal.id,
+                        version: goal.version,
+                      })
+                    )
+                      onDeleted();
+                }}
+              >
+                Delete goal
               </button>
             </div>
-            <details>
-              <summary>Customize · {c.progress}%</summary>
-              <label className="field">
-                Reason (inherits parent when empty)
-                <textarea
-                  value={c.reason}
-                  maxLength={20000}
-                  onChange={(e) =>
-                    patchChild(c.key, { reason: e.target.value })
-                  }
-                />
-              </label>
-              <label className="field">
-                Category
-                <select
-                  value={c.categoryId}
-                  onChange={(e) =>
-                    patchChild(c.key, { categoryId: e.target.value })
-                  }
-                >
-                  <option value="">Same as parent</option>
-                  {data.categories
-                    .filter((c) => c.isActive && !c.archivedAt)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <label className="field">
-                Progress (%)
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={c.progress}
-                  onChange={(e) =>
-                    patchChild(c.key, { progress: Number(e.target.value) })
-                  }
-                />
-              </label>
-            </details>
-          </div>
-        ))}
-        <button
-          className="inline-add-task"
-          type="button"
-          disabled={busy || children.length >= 50}
-          onClick={() =>
-            setChildren((rows) => [
-              ...rows,
-              {
-                key: Math.max(0, ...rows.map((r) => r.key)) + 1,
-                title: "",
-                hours: null,
-                reason: "",
-                categoryId: "",
-                progress: 0,
-              },
-            ])
-          }
-        >
-          <Plus size={16} />
-          Add subgoal
-        </button>
-      </section>
-      <button className="button primary" disabled={busy}>
-        {busy ? "Saving…" : "Save goal"}
-      </button>
-    </form>
+          </fieldset>
+        </aside>
+      </div>
+    </div>
   );
 }
 function GoalTasks({

@@ -9,9 +9,11 @@ import {
 } from "node:fs";
 import { spawn } from "node:child_process";
 import { randomBytes, scryptSync } from "node:crypto";
+import webpush from "web-push";
 const password = randomBytes(18).toString("base64url");
 const salt = randomBytes(16).toString("hex");
 const hash = `scrypt:${salt}:${scryptSync(password, salt, 64).toString("hex")}`;
+const vapid = webpush.generateVAPIDKeys();
 const env = {
   ...process.env,
   DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:54339/postgres",
@@ -25,11 +27,18 @@ const env = {
   APP_TIMEZONE: "Asia/Kolkata",
   TEST_LOGIN_PASSWORD: password,
   TEST_ISOLATED: "1",
+  PUSH_VAPID_PUBLIC_KEY: vapid.publicKey,
+  PUSH_VAPID_PRIVATE_KEY: vapid.privateKey,
+  PUSH_CONTACT: "mailto:isolated@example.test",
+  CRON_SECRET: randomBytes(32).toString("base64url"),
   PLAYWRIGHT_CHROME_PATH:
     process.env.PLAYWRIGHT_CHROME_PATH ||
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 };
 const db = await PGlite.create();
+// The socket preview does not honor pg's startup timezone option. Match the
+// production adapter explicitly so DateTime parameters round-trip as UTC.
+await db.exec("SET TIME ZONE 'UTC'");
 for (const name of readdirSync("prisma/migrations")
   .filter((n) => /^\d/.test(n))
   .sort()) {
@@ -79,7 +88,13 @@ try {
   }
   if (!ready) throw Error("Test app did not start.");
   await run(["--import", "tsx", "--test", "tests/database.integration.ts"]);
-  await run(["--import", "tsx", "--test", "tests/stability.http.ts"]);
+  await run([
+    "--import",
+    "tsx",
+    "--test",
+    "tests/stability.http.ts",
+    "tests/push.http.ts",
+  ]);
   if (process.argv.includes("--manual")) {
     mkdirSync("work", { recursive: true });
     writeFileSync("work/isolated-login.json", JSON.stringify({ password }), {
@@ -99,5 +114,8 @@ try {
   app.kill("SIGTERM");
   await new Promise((r) => (app.exitCode !== null ? r() : app.once("exit", r)));
   await socket.stop();
+  // The socket adapter can finish an already-started protocol callback after
+  // its server closes. Drain exclusive work before tearing down the WASM DB.
+  await db.runExclusive(async () => {});
   await db.close();
 }

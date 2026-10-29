@@ -56,10 +56,10 @@ test("retired reset is marked without running its SQL, and an unresolved failure
     ),
     /unresolved/,
   );
-  assert.doesNotMatch(
-    readFileSync("scripts/vercel-build.mjs", "utf8"),
-    /execFileSync\([^\n]*migrate/,
-  );
+  // Release builds now apply migrations on Vercel through the reset-safe runner.
+  const releaseBuild = readFileSync("scripts/vercel-build.mjs", "utf8");
+  assert.match(releaseBuild, /scripts\/safe-migrate\.mjs/);
+  assert.doesNotMatch(releaseBuild, /execFileSync\([^\n]*["']prisma["']/);
 });
 test("ambiguous network failure reuses the retry key; an intentional second create gets a new key", async () => {
   const original = globalThis.fetch;
@@ -100,4 +100,40 @@ test("collection patches replace the saved row while retaining unrelated records
   assert.equal(updated.categories.find((r) => r.id === "one")?.name, "New");
   assert.equal(updated.tasks, data.tasks);
   assert.equal(data.categories[0].name, "Old");
+});
+
+test("undated saves and collection patches cannot reintroduce hidden tasks into standalone lists", () => {
+  const dated = { id: "dated", plannedDate: "2026-10-29" };
+  const undated = { id: "undated", plannedDate: null };
+  for (const view of ["today", "tasks", "category", "projects", "week"]) {
+    const data = {
+      page: { view },
+      tasks: [dated, undated],
+      categories: [{ id: "category" }],
+    } as unknown as Workspace;
+    const acknowledged = applyCommandPatch(data, { ok: true, id: "undated" });
+    assert.deepEqual(
+      acknowledged.tasks.map((task) => task.id),
+      ["dated"],
+      view,
+    );
+    const patched = applyCommandPatch(data, {
+      ok: true,
+      patch: { collection: "categories", record: { id: "category" } },
+    });
+    assert.deepEqual(
+      patched.tasks.map((task) => task.id),
+      ["dated"],
+      view,
+    );
+    assert.equal(data.tasks.length, 2);
+  }
+  for (const view of ["task", "picker"]) {
+    const data = {
+      page: { view },
+      tasks: [undated],
+      categories: [],
+    } as unknown as Workspace;
+    assert.equal(applyCommandPatch(data, { ok: true, id: "undated" }), data);
+  }
 });

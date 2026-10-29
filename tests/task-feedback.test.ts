@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { nextDayDueDate, tomorrowDate } from "../src/lib/task-scheduling";
+import {
+  isPendingTask,
+  nextDayDueDate,
+  tomorrowDate,
+} from "../src/lib/task-scheduling";
 import { ownerDisplayName } from "../src/lib/owner-name";
 test("tomorrow uses the workspace calendar and moves a due date by one local day", () => {
   assert.equal(
@@ -44,4 +48,31 @@ test("the sample name is replaced for existing and new sessions", () => {
     if (previous === undefined) delete process.env.OWNER_NAME;
     else process.env.OWNER_NAME = previous;
   }
+});
+
+test("pending tasks include earlier, today and undated open work, excluding future and finished work", () => {
+  const today = "2026-10-29";
+  const task = {
+    status: "PLANNED",
+    archivedAt: null,
+    plannedDate: "2026-10-26T00:00:00.000Z",
+  };
+  assert.equal(isPendingTask(task, today), true);
+  assert.equal(isPendingTask({ ...task, plannedDate: today }, today), true);
+  assert.equal(
+    isPendingTask({ ...task, status: "INBOX", plannedDate: null }, today),
+    true,
+  );
+  assert.equal(isPendingTask({ ...task, status: "IN_PROGRESS" }, today), true);
+  assert.equal(
+    isPendingTask(
+      { ...task, plannedDate: new Date("2026-10-30T00:00:00Z") },
+      today,
+    ),
+    false,
+  );
+  assert.equal(isPendingTask({ ...task, archivedAt: today }, today), false);
+  assert.equal(isPendingTask({ ...task, status: "COMPLETED" }, today), false);
+  assert.equal(isPendingTask({ ...task, status: "CANCELLED" }, today), false);
+  assert.equal(task.plannedDate, "2026-10-26T00:00:00.000Z");
 });

@@ -85,3 +85,43 @@ test("task view shows each task once, keeps completed tasks, and dates unplanned
   const rows=taskEntries({tasks:[base,{...base,id:'unplanned',plannedDate:null},{...base,id:'cancelled',status:'CANCELLED'}],events:[]});
   assert.deepEqual(rows.map(e=>[e.task.id,e.date]),[['planned','2026-10-20'],['unplanned','2026-10-19']]);
 });
+
+test("Work mode keeps selected child categories as Plan columns when their parent is outside the view", () => {
+  const categories = [
+    {
+      id: "selected-child",
+      name: "Client work",
+      parentId: "hidden-parent",
+      isActive: true,
+      sortOrder: 1,
+    },
+    {
+      id: "leaf",
+      name: "Delivery",
+      parentId: "selected-child",
+      isActive: true,
+      sortOrder: 0,
+    },
+    {
+      id: "other",
+      name: "Operations",
+      parentId: "another-hidden-parent",
+      isActive: true,
+      sortOrder: 0,
+    },
+    {
+      id: "inactive",
+      name: "Inactive",
+      parentId: "hidden-parent",
+      isActive: false,
+      sortOrder: 0,
+    },
+  ];
+  const cols = trackerColumns({ categories });
+  assert.deepEqual(
+    cols.map((c) => c.id),
+    ["other", "selected-child"],
+  );
+  assert.deepEqual([...cols[1].descendants].sort(), ["leaf", "selected-child"]);
+  assert.ok(!cols.some((c) => c.id === "leaf" || c.id === "inactive"));
+});

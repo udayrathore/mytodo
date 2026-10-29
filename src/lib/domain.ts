@@ -52,6 +52,27 @@ const taskFields = {
 };
 export const commandSchema = z.discriminatedUnion("type", [
   z.object({
+    type: z.literal("task.checklist.add"),
+    id,
+    version: z.number().int().min(0),
+    title,
+  }),
+  z.object({
+    type: z.literal("task.checklist.update"),
+    id,
+    version: z.number().int().min(0),
+    itemId: id,
+    title: title.optional(),
+    isCompleted: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).max(1000000).optional(),
+  }),
+  z.object({
+    type: z.literal("task.checklist.remove"),
+    id,
+    version: z.number().int().min(0),
+    itemId: id,
+  }),
+  z.object({
     type: z.literal("master.remove"),
     id: z.uuid(),
     kind: z.literal("tag"),
@@ -96,6 +117,20 @@ export const commandSchema = z.discriminatedUnion("type", [
     id,
     version: z.number().int().min(0),
     plannedDate: dateOnly,
+  }),
+  z.object({
+    type: z.literal("tasks.rescheduleOverdue"),
+    plannedDate: dateOnly,
+    scope: z
+      .object({
+        category: id.optional(),
+        project: id.optional(),
+        entity: id.optional(),
+        tag: id.optional(),
+        search: z.string().trim().max(240).optional(),
+        status: z.enum(["ALL", "OPEN", ...statuses]).optional(),
+      })
+      .default({}),
   }),
   z.object({
     type: z.literal("tasks.capture"),

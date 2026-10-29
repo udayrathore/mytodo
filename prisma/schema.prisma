@@ -95,6 +95,8 @@ model User {
   workModeEnabled Boolean @default(false) @map("work_mode_enabled")
   workCategoryIds String[] @default([]) @map("work_category_ids") @db.Uuid
   commandReceipts CommandReceipt[]
+  pushSubscriptions PushSubscription[]
+  pushSummaryDeliveries PushSummaryDelivery[]
   loginCodeHash String? @map("login_code_hash")
   recoveryEmail String? @map("recovery_email")
   id                         String                @id @default(uuid()) @db.Uuid
@@ -107,6 +109,7 @@ model User {
   taskRecords                Task[]
   taskSeries                 TaskSeries[]
   taskComments               TaskComment[]
+  taskChecklistItems         TaskChecklistItem[]
   taskEventRecords           TaskEvent[]
   tagRecords                 Tag[]
   taskTagRecords             TaskTag[]
@@ -183,6 +186,7 @@ model Task {
   category            Category?         @relation(fields: [primaryCategoryId], references: [id], onDelete: Restrict)
   template            TaskTemplate?     @relation(fields: [templateId], references: [id], onDelete: Restrict)
   comments            TaskComment[]
+  checklistItems      TaskChecklistItem[]
   events              TaskEvent[]
   tags                TaskTag[]
   entities            TaskEntityLink[]
@@ -204,6 +208,22 @@ model Task {
   @@map("tasks")
   @@index([userId, createdAt, id], map: "tasks_owner_created_cursor_idx")
   @@index([userId, seriesId, plannedDate, id], map: "tasks_owner_series_date_idx")
+}
+
+model TaskChecklistItem {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  parentTaskId String   @map("parent_task_id") @db.Uuid
+  user         User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  parentTask   Task     @relation(fields: [parentTaskId, userId], references: [id, userId], onDelete: Cascade)
+  title        String   @db.VarChar(240)
+  isCompleted  Boolean  @default(false) @map("is_completed")
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([userId, parentTaskId, sortOrder, id], map: "task_checklist_items_owner_parent_idx")
+  @@map("task_checklist_items")
 }
 
 model TaskEvent {
@@ -720,4 +740,53 @@ model CommandReceipt {
   @@id([userId, key])
   @@index([createdAt], map: "command_receipts_created_idx")
   @@map("command_receipts")
+}
+
+
+model PushSubscription {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpointHash String @unique @map("endpoint_hash") @db.VarChar(64)
+  endpoint String @db.VarChar(2048)
+  p256dh String @db.VarChar(128)
+  auth String @db.VarChar(64)
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(3)
+  disabledAt DateTime? @map("disabled_at") @db.Timestamptz(3)
+  lastSuccessAt DateTime? @map("last_success_at") @db.Timestamptz(3)
+  lastErrorAt DateTime? @map("last_error_at") @db.Timestamptz(3)
+  lastErrorCode Int? @map("last_error_code")
+  lastTestAt DateTime? @map("last_test_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deliveries PushSummaryDelivery[]
+  @@unique([id, userId])
+  @@index([userId, disabledAt])
+  @@map("push_subscriptions")
+}
+
+model PushSummaryDelivery {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionId String @map("subscription_id") @db.Uuid
+  subscription PushSubscription @relation(fields: [subscriptionId, userId], references: [id, userId], onDelete: Cascade)
+  localDate DateTime @map("local_date") @db.Date
+  slot String @db.VarChar(16)
+  status String @default("PENDING") @db.VarChar(16)
+  attempts Int @default(0)
+  leaseToken String? @map("lease_token") @db.Uuid
+  leaseUntil DateTime? @map("lease_until") @db.Timestamptz(3)
+  nextAttemptAt DateTime @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  sentAt DateTime? @map("sent_at") @db.Timestamptz(3)
+  completedCount Int? @map("completed_count")
+  pendingCount Int? @map("pending_count")
+  lastErrorCode Int? @map("last_error_code")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  @@unique([subscriptionId, localDate, slot])
+  @@index([status, nextAttemptAt])
+  @@index([userId, localDate])
+  @@map("push_summary_deliveries")
 }

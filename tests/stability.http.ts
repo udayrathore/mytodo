@@ -427,3 +427,168 @@ test("Work mode persists, includes child categories, and scopes paged reads, lin
   );
   assert.ok(await db.task.findUnique({ where: { id: personalTask.id } }));
 });
+
+test("minimal goal and challenge creation preserves nested children through detailed edits and rejects stale or invalid saves", async () => {
+  await post("/api/work-mode", { action: "toggle", enabled: false });
+  const owner = await db.user.findUniqueOrThrow({
+    where: { email: process.env.OWNER_EMAIL! },
+  });
+  const category = await post("/api/commands", {
+    type: "category.save",
+    name: `Hierarchy editor ${randomUUID()}`,
+    parentId: null,
+    sortOrder: 5,
+    isActive: true,
+  });
+  const foreign = await db.user.create({
+    data: {
+      email: `hierarchy-other-${randomUUID()}@example.test`,
+      name: "Other owner",
+    },
+  });
+  const foreignCategory = await db.category.create({
+    data: {
+      userId: foreign.id,
+      name: "Foreign hierarchy category",
+      slug: "foreign-hierarchy",
+    },
+  });
+  for (const module of ["goals", "challenges"] as const) {
+    const childKey = module === "goals" ? "subgoals" : "subchallenges";
+    const singular = module === "goals" ? "goal" : "challenge";
+    const parentBody = {
+      action: "save",
+      title: `Minimal ${singular} parent`,
+      reason: `The parent ${singular} reason`,
+      categoryId: category.id,
+      parentId: null,
+      ...(module === "goals"
+        ? { status: "NOT_STARTED", progress: 0, estimatedMinutes: null }
+        : { goalId: null, coreLearning: "" }),
+    };
+    const created = await post(`/api/${module}`, {
+      ...parentBody,
+      [childKey]: [
+        {
+          title: "First nested child",
+          ...(module === "goals" ? { estimatedMinutes: null } : {}),
+        },
+        {
+          title: "Second nested child",
+          ...(module === "goals" ? { estimatedMinutes: null } : {}),
+        },
+      ],
+    });
+    const parent = created.result;
+    assert.equal(parent.categoryId, category.id);
+    assert.equal(parent.version, 0);
+    const rows = (await get(`/api/${module}`))[module];
+    const children = rows.filter(
+      (record: { parentId: string | null }) => record.parentId === parent.id,
+    );
+    assert.equal(children.length, 2);
+    assert.ok(
+      children.every(
+        (child: { categoryId: string; reason: string }) =>
+          child.categoryId === category.id &&
+          child.reason === parentBody.reason,
+      ),
+    );
+    if (module === "goals") {
+      assert.equal(parent.status, "NOT_STARTED");
+      assert.equal(parent.progress, 0);
+      assert.ok(
+        children.every(
+          (child: {
+            progress: number;
+            status: string;
+            estimatedMinutes: number | null;
+          }) =>
+            child.progress === 0 &&
+            child.status === "NOT_STARTED" &&
+            child.estimatedMinutes === null,
+        ),
+      );
+    } else {
+      assert.equal(parent.coreLearning, "");
+      assert.ok(
+        children.every(
+          (child: { coreLearning: string }) => child.coreLearning === "",
+        ),
+      );
+    }
+    const edited = await post(`/api/${module}`, {
+      ...parentBody,
+      id: parent.id,
+      version: parent.version,
+      title: `Edited ${singular} parent`,
+      reason: `Updated ${singular} reason`,
+      ...(module === "goals"
+        ? { status: "NOT_STARTED", progress: 45, estimatedMinutes: 90 }
+        : { coreLearning: "A detailed edit retains learning." }),
+    });
+    assert.equal(edited.result.version, 1);
+    const detail = (await get(`/api/${module}?id=${parent.id}`))[singular];
+    assert.equal(detail.title, `Edited ${singular} parent`);
+    assert.equal(detail.reason, `Updated ${singular} reason`);
+    if (module === "goals") {
+      assert.equal(detail.status, "STARTED");
+      assert.equal(detail.progress, 45);
+      assert.equal(detail.estimatedMinutes, 90);
+    } else
+      assert.equal(detail.coreLearning, "A detailed edit retains learning.");
+    const retained = (await get(`/api/${module}`))[module].filter(
+      (record: { parentId: string | null }) => record.parentId === parent.id,
+    );
+    assert.deepEqual(
+      retained.map((record: { id: string }) => record.id),
+      children.map((record: { id: string }) => record.id),
+    );
+    const stale = await fetch(`${base}/api/${module}`, {
+      method: "POST",
+      headers: {
+        Origin: base,
+        "Content-Type": "application/json",
+        Cookie: cookie,
+      },
+      body: JSON.stringify({ ...parentBody, id: parent.id, version: 0 }),
+    });
+    assert.equal(stale.status, 400);
+    assert.match((await stale.json()).error, /changed/);
+    const before = (await get(`/api/${module}`))[module].length;
+    const invalid = await fetch(`${base}/api/${module}`, {
+      method: "POST",
+      headers: {
+        Origin: base,
+        "Content-Type": "application/json",
+        Cookie: cookie,
+      },
+      body: JSON.stringify({
+        ...parentBody,
+        title: `Invalid nested ${singular} parent`,
+        [childKey]: [
+          {
+            title: "Valid first child",
+            ...(module === "goals" ? { estimatedMinutes: null } : {}),
+          },
+          {
+            title: "Foreign category child",
+            categoryId: foreignCategory.id,
+            ...(module === "goals" ? { estimatedMinutes: null } : {}),
+          },
+        ],
+      }),
+    });
+    assert.equal(invalid.status, 400);
+    assert.match((await invalid.json()).error, /active sub/);
+    const after = (await get(`/api/${module}`))[module];
+    assert.equal(
+      after.length,
+      before,
+      "A rejected child must roll back its parent and earlier siblings",
+    );
+    assert.ok(
+      after.every((record: { userId: string }) => record.userId === owner.id),
+    );
+  }
+});

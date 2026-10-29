@@ -22,13 +22,13 @@ Checked on 11 October 2026 against official documentation and the package regist
 | Component    | Version / choice                                                                      |
 | ------------ | ------------------------------------------------------------------------------------- |
 | Node.js      | 24 LTS (`.nvmrc`, Vercel runtime via `engines`)                                       |
-| Next.js      | 16.4.0, TypeScript, App Router, Node.js runtime                                       |
+| Next.js      | 16.4.3, TypeScript, App Router, Node.js runtime                                       |
 | React        | 19.3.0                                                                                |
 | Tailwind CSS | 4.3.3                                                                                 |
 | Prisma       | 7.10.0 stable (the registry’s default tag was a release candidate for 8)              |
 | PostgreSQL   | Neon, pooled runtime URL; direct migration URL                                        |
 | Driver       | Prisma’s official `@prisma/adapter-pg`, max three connections per serverless instance |
-| Validation   | Zod 4.6.5                                                                             |
+| Validation   | Zod 4.6.7                                                                             |
 | Icons        | Lucide; otherwise native accessible HTML controls                                     |
 
 Official references: [Next.js requirements](https://nextjs.org/docs/app/getting-started/installation), [Prisma requirements](https://www.prisma.io/docs/orm/v7/reference/system-requirements), [Prisma PostgreSQL driver adapters](https://www.prisma.io/docs/orm/v7/core-concepts/supported-databases/database-drivers), [Neon + Prisma](https://neon.com/docs/guides/prisma).
@@ -108,14 +108,71 @@ It uses `.local/login.txt`, so it is for the isolated local setup. Set `PLAYWRIG
 
 No deployment or paid service is required to run locally. For production:
 
-1. Push this Git repository to your Git provider and import it into Vercel. Choose **Next.js**, Node **24.x**, install `npm ci`, build `npm run build`. No custom output directory is needed.
+1. Push this Git repository to your Git provider and import it into Vercel. Choose **Next.js**, Node **24.x**, and install `npm ci`. Keep the checked-in build command, `node scripts/vercel-build.mjs`. No custom output directory is needed.
 2. Set production environment variables from `.env.example` in Vercel’s project settings. Use a **production Neon branch**. Do not set `LOCAL_PGLITE` or copy local test credentials.
 3. Set `APP_URL` to your final **HTTPS** production origin, without an extra path. Preview deployments need their own exact origin and separate development database, or leave previews unconfigured. Protected login remains unavailable without valid setup.
-4. Apply `npm run db:migrate` from a trusted terminal/CI environment with the production `DIRECT_URL` **before** serving the new code. Migration is deliberately not part of the Next.js build: preview builds must not mutate production.
+4. The Vercel release build runs the safe migration wrapper before compiling. Use the intended database's private `DIRECT_URL`; preview deployments must use a separate database. Plain `npm run build` only compiles. For a separate migration step, use `npm run db:migrate`, which safely skips the retired clean-start reset. Do not run raw `prisma migrate deploy` or historical reset SQL.
 5. Deploy, sign in, capture a test task, reopen it, record effort, and verify persistence after a reload. Create a journal entry and sign out. Check that `/api/workspace` then returns 401.
 6. Do not seed production unless you intentionally want the example records.
 
-The architecture uses no local filesystem at runtime, no always-on workers, no mandatory paid APIs, and no external message delivery. In-app reminders are access-driven, so they do not require cron. Free-tier limits and Vercel Hobby usage eligibility remain subject to the providers’ current terms; the app itself has no paid dependency.
+The architecture uses no local filesystem at runtime or always-on worker. Optional Web Push delivers daily summaries through the browser's push service and requires the configuration below. In-app reminders remain access-driven and do not require cron. Free-tier limits and Vercel Hobby usage eligibility remain subject to the providers' current terms.
+
+## Installable app and daily summaries
+
+Open the deployed HTTPS app and choose your browser's **Install app**, **Add to Dock**, or **Add to Home Screen** option. Account settings also offers installation when the browser supports a prompt. On iPhone and iPad, install to the Home Screen and open that installed app before enabling notifications. Web Push requires iOS/iPadOS 16.4 or later and a direct user gesture to request permission. [WebKit's installation and push requirements](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/).
+
+Go to **Menu → Account settings → App & notifications**, click **Enable notifications**, and grant permission. Permission is requested only after that click. Each browser or installed app subscribes separately. **Send test summary** checks the current device; **Turn off this device** removes its subscription. Notifications remain enabled until you disable them or change browser settings.
+
+The morning and evening summaries report **completed today** and **all pending tasks**:
+
+- Completed today counts tasks currently marked completed whose completion timestamp falls on the current date in the account timezone, including completed tasks subsequently archived.
+- Pending counts every unarchived task that is neither completed nor cancelled, including future and undated tasks across all categories. Work mode and active screen filters do not narrow these counts. Checklist subtasks are not separate task records and do not add to either count.
+
+Summary times are **09:00 and 20:00 in the account timezone**. Browser/device notification settings, Focus modes, and connectivity can delay receipt after dispatch. Recurring task generation remains access-driven; summaries count task records that already exist.
+
+The service worker caches only public static assets and a generic offline page. Authenticated pages, API responses, account data, and task content are never stored in its cache. Offline editing and offline task access are not provided. Updates show an explicit reload action; close/save an open editor before accepting an update. See the [Next.js PWA guide](https://nextjs.org/docs/app/guides/progressive-web-apps).
+
+### Push configuration and scheduling
+
+Set these server environment variables in the intended Vercel environment, in addition to the existing database/auth settings:
+
+| Variable | Value |
+| --- | --- |
+| `PUSH_VAPID_PUBLIC_KEY` | Base64url public key from one generated VAPID pair |
+| `PUSH_VAPID_PRIVATE_KEY` | Matching private key, stored as a secret |
+| `PUSH_CONTACT` | Valid contact such as `mailto:you@example.com` |
+| `CRON_SECRET` | A random secret of at least 32 characters |
+| `PUSH_SCHEDULE_WINDOW_MINUTES` | `60` for the Hobby schedule below; `15` is the runtime default |
+
+Keep the same VAPID keypair across deployments. Rotating it requires devices to enable notifications again. Never put the private key or cron secret in a `NEXT_PUBLIC` variable, the manifest, the service worker, a committed file, or a query string. `APP_URL` must match the final HTTPS app origin.
+
+To generate values in a trusted local terminal without printing secrets, this writes a new ignored file with owner-only permissions and refuses to overwrite an existing one:
+
+```sh
+node --input-type=module <<'NODE'
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import webpush from 'web-push';
+const pair = webpush.generateVAPIDKeys();
+mkdirSync('.local', { recursive: true, mode: 0o700 });
+writeFileSync('.local/push-keys.env', [
+  `PUSH_VAPID_PUBLIC_KEY=${pair.publicKey}`,
+  `PUSH_VAPID_PRIVATE_KEY=${pair.privateKey}`,
+  `CRON_SECRET=${randomBytes(32).toString('base64url')}`,
+  '',
+].join('\n'), { mode: 0o600, flag: 'wx' });
+NODE
+```
+
+Provision these values through private environment settings. The additive `202610300001_web_push_daily_summary` migration creates subscription and delivery tables; it does not delete or reset existing tasks or account data. The safe release migration wrapper applies it before the new code serves requests.
+
+The dispatcher is `GET` or `POST /api/cron/daily-summary`, authenticated with an `Authorization: Bearer <CRON_SECRET>` header. It does not use a login session. Vercel Cron supplies that header automatically when `CRON_SECRET` is configured; an external scheduler must set it explicitly. [Cron authentication](https://vercel.com/docs/cron-jobs/manage-cron-jobs).
+
+The free Vercel Hobby setup uses two daily UTC jobs, **03:30** and **14:30**, corresponding to 09:00 and 20:00 in `Asia/Kolkata`, with `PUSH_SCHEDULE_WINDOW_MINUTES=60`. These jobs are tied to that timezone: update their UTC times if the account timezone changes. Hobby may invoke a job up to 59 minutes late, so it cannot guarantee exact 9am/8pm dispatch. Vercel does not retry failed cron invocations automatically. [Cron plan limits and precision](https://vercel.com/docs/cron-jobs/usage-and-pricing), [cron retry behavior](https://vercel.com/docs/cron-jobs/manage-cron-jobs).
+
+For precise timing and dependable retries, use a scheduler that calls the dispatcher every minute, or one that invokes at both target times and retries/drains pending deliveries. The dispatcher deduplicates each device/date/slot, claims work durably, and retries temporary failures on later invocations for up to an hour. Each request processes up to five devices; a `503` response with `Retry-After: 30` means work remains and needs another invocation. Per-minute ticks also follow account timezone changes automatically. Frequent native Vercel cron requires a plan that supports it; an external scheduler must support private authorization headers.
+
+Setting VAPID keys alone does not start a schedule. Verify the deployed cron configuration, production environment variables, device subscription, a test summary, and a scheduled delivery before treating automatic notifications as active. Precise external scheduling is an optional deployment choice and is not enabled by this code alone.
 
 ## Security and account operations
 
@@ -179,7 +236,7 @@ Each occurrence is a separate task. Completing, reopening, or archiving one does
 
 Migration `202610200001_repeating_tasks` adds `task_series` and task appearance/occurrence columns, with ownership checks and a unique series/date constraint. Apply it with `npm run db:migrate` on Neon or `npm run db:local:migrate` for the local preview. Existing tasks and history are retained.
 
-Occurrences materialize on workspace access: 90 days ahead by default and through the selected calendar range, up to two years ahead. An empty end date means the rule continues; refreshes extend the window over time. No background scheduler is required, and the app does not claim to send notifications while closed. Converting an old task preserves that original occurrence and begins generating from today, without fabricating a historical backlog. The repeat blueprint snapshots creation defaults; typed fields, tags and entity links copy to new occurrences, while effort, completion, reminders and planning-period memberships do not.
+Occurrences materialize on workspace access: 90 days ahead by default and through the selected calendar range, up to two years ahead. An empty end date means the rule continues; refreshes extend the window over time. Recurrence materialization does not require a background scheduler. Separately configured Web Push summaries can arrive while the app is closed. Converting an old task preserves that original occurrence and begins generating from today, without fabricating a historical backlog. The repeat blueprint snapshots creation defaults; typed fields, tags and entity links copy to new occurrences, while effort, completion, reminders and planning-period memberships do not.
 
 
 ### Scoped loading (draft)
@@ -201,7 +258,9 @@ Existing four-digit codes remain valid. New credentials use passwords of at leas
 
 ## Reliability release — 25 October 2026
 
-Builds no longer run database migrations. Before deploying this release, run
+At the time of this release, builds did not run database migrations. Current Vercel
+release builds apply the safe migration wrapper automatically, as described above.
+For a separate migration step, run
 `npm run db:migrate` against the intended database using its private direct URL.
 This wrapper marks the retired `202610240009_clean_start` reset as applied without
 executing it if it is still pending. Already applied migration files/checksums are

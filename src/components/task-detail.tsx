@@ -1,183 +1,250 @@
 "use client";
-import { Plus, CalendarArrowUp } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { DatePicker } from "./date-picker";
+import { Archive, CalendarArrowUp } from "lucide-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import type { Workspace, Task } from "@/lib/workspace";
-import { TaskForm, type Save } from "./task-form";
+import type { Save } from "./task-form";
+import { TaskEditForm } from "./task-edit-form";
+import { TaskChecklist } from "./task-checklist";
 import { Field, human, inputToIso } from "./ui";
-import { TaskChallenges } from "./challenges";
-import { TaskGoals } from "./goals";
+import dynamic from "next/dynamic";
 import { SeriesSettings } from "./task-options";
 import { RemoteHistory } from "./remote-history";
 import { TaskComments } from "./task-comments";
 import { addDays } from "@/lib/domain";
+import { applyTaskEditResult } from "@/lib/task-edit-state";
 import { TaskPicker } from "./task-picker";
 
+const TaskGoals = dynamic(
+  () => import("./goals").then((module) => module.TaskGoals),
+  { loading: () => <p role="status">Loading goals…</p> },
+);
+const TaskChallenges = dynamic(
+  () => import("./challenges").then((module) => module.TaskChallenges),
+  { loading: () => <p role="status">Loading challenges…</p> },
+);
+
+function DetailSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  const [visited, setVisited] = useState(false);
+  return (
+    <details
+      className="task-edit-setting task-edit-extra"
+      onToggle={(event) => {
+        if (event.currentTarget.open) setVisited(true);
+      }}
+    >
+      <summary>
+        {title}
+        <span aria-hidden="true">+</span>
+      </summary>
+      {visited && <div className="task-edit-options">{children}</div>}
+    </details>
+  );
+}
+
 export function TaskDetail({
-  task,
+  task: incomingTask,
   data,
   save,
   onClose,
+  refreshError,
 }: {
   task: Task;
   data: Workspace;
   save: Save;
   onClose: () => void;
+  refreshError?: string | null;
 }) {
-  const [tab, setTab] = useState("Details");
-  const [extra, setExtra] = useState("");
-  const [fields, setFields] = useState<string[]>([]);
+  const [task, setTask] = useState(incomingTask);
+  const current = useRef(incomingTask);
+  const saving = useRef(false);
+  const conflicted = useRef(false);
+  const [conflict, setConflict] = useState(false);
   const [busy, setBusy] = useState(false);
-  async function submit(e: FormEvent<HTMLFormElement>, type: string) {
-    e.preventDefault();
+  const [error, setError] = useState("");
+  function publish(next: Task) {
+    current.current = next;
+    setTask(next);
+  }
+  useEffect(() => {
+    if (incomingTask.version === current.current.version) {
+      current.current = incomingTask;
+      setTask(incomingTask);
+    } else if (
+      incomingTask.version > current.current.version &&
+      !saving.current
+    ) {
+      conflicted.current = true;
+      setConflict(true);
+      setError(
+        "This task changed elsewhere. Your draft is kept here; reopen the task to load the latest version before saving.",
+      );
+    }
+  }, [incomingTask]);
+
+  const saveDetail: Save = async (input, onResult) => {
+    if (saving.current || conflicted.current) return false;
+    saving.current = true;
     setBusy(true);
-    const form = e.currentTarget;
-    const f = new FormData(form);
+    setError("");
+    const latest = current.current;
+    const command: Record<string, unknown> = {
+      ...input,
+      ...(input.id === latest.id && typeof input.version === "number"
+        ? { version: latest.version }
+        : {}),
+      ...(input.type === "task.update" && input.scope === "ALL"
+        ? { seriesVersion: latest.series?.version }
+        : {}),
+      ...(input.type === "series.schedule" &&
+      latest.series &&
+      input.id === latest.series.id
+        ? { version: latest.series.version }
+        : {}),
+    };
+    try {
+      const ok = await save(command, (result) => {
+        publish(applyTaskEditResult(current.current, command, result));
+        onResult?.(result);
+      });
+      // Repeat commands can change both the series and selected occurrence.
+      if (ok && String(command.type).startsWith("series.")) {
+        try {
+          const response = await fetch(
+            `/api/workspace?view=task&task=${latest.id}`,
+            { cache: "no-store" },
+          );
+          if (!response.ok)
+            throw Error(
+              "Could not refresh repeat settings. Reopen the task to reload them.",
+            );
+          const fresh: Workspace = await response.json();
+          const record = fresh.tasks.find((item) => item.id === latest.id);
+          if (record && record.version >= current.current.version)
+            publish(record);
+        } catch (cause) {
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Repeat settings saved. Reopen this task to refresh.",
+          );
+        }
+      }
+      return ok;
+    } finally {
+      saving.current = false;
+      setBusy(false);
+    }
+  };
+
+  async function submit(event: FormEvent<HTMLFormElement>, type: string) {
+    event.preventDefault();
+    if (busy) return;
+    const form = event.currentTarget,
+      fields = new FormData(form);
     let command: Record<string, unknown> = { type, id: task.id };
     if (type === "task.effort")
       command = {
         ...command,
-        minutes: Number(f.get("minutes")),
-        occurredOn: f.get("occurredOn"),
-        note: f.get("note"),
+        minutes: Number(fields.get("minutes")),
+        occurredOn: fields.get("occurredOn"),
+        note: fields.get("note"),
       };
     if (type === "reminder.create")
       command = {
         ...command,
         scheduledFor: inputToIso(
-          String(f.get("scheduledFor")),
+          String(fields.get("scheduledFor")),
           data.user.timezone,
         ),
       };
     if (type === "task.relate")
       command = {
         ...command,
-        targetId: f.get("targetId"),
-        relationType: f.get("relationType"),
+        targetId: fields.get("targetId"),
+        relationType: fields.get("relationType"),
       };
-    if (await save(command)) form.reset();
-    setBusy(false);
+    if (await saveDetail(command)) form.reset();
   }
   return (
-    <>
-      <div className="task-detail-tools">
-        <details className="challenge-add-menu">
-          <summary
-            className="icon-button"
-            aria-label="Task actions"
-            data-tooltip="Task actions"
-          >
-            <Plus size={20} />
-          </summary>
-          <div>
-            {[
-              ["notes", "Add notes"],
-              ["entities", "Link entities"],
-              ["tags", "Add tags"],
-              ["date", "Change planned date"],
-              ["due", "Due date"],
-              ["estimate", "Time estimate"],
-              ["series", "Edit repeat occurrences"],
-              ["comment", "Add comment"],
-              ["goal", "Link goal"],
-              ["challenge", "Link challenge"],
-              ["repeat", "Repeat settings"],
-              ["related", "Link task"],
-              ["effort", "Record effort"],
-              ["reminder", "Add reminder"],
-              ["history", "Activity history"],
-            ].map(([id, label]) => (
-              <button
-                key={id}
-                onClick={(e) => {
-                  setExtra(id);
-                  setFields((previous) =>
-                    previous.includes(id) ? previous : [...previous, id],
-                  );
-                  setTab(
-                    ["effort", "reminder", "history"].includes(id)
-                      ? "Activity"
-                      : "Details",
-                  );
-                  e.currentTarget.closest("details")?.removeAttribute("open");
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </details>
-      </div>
-      <TaskForm
-        key={task.id}
-        compact
-        visibleFields={fields}
+    <div className="task-detail-screen" aria-busy={busy}>
+      {(error || refreshError) && (
+        <p className="form-error task-edit-error" role="alert">
+          {error || refreshError}
+        </p>
+      )}
+      <TaskEditForm
         task={task}
         data={data}
-        save={save}
-        onDone={() => {}}
-      />
-      {extra && (
-        <button
-          className="text-button"
-          onClick={() => {
-            setExtra("");
-            setFields([]);
-            setTab("Details");
-          }}
-        >
-          Done
-        </button>
-      )}
-      {tab === "Details" && (
-        <>
-          <TaskComments
-            showEditor={extra === "comment"}
-            key={task.id}
-            taskId={task.id}
-            timezone={data.user.timezone}
-            save={save}
+        save={saveDetail}
+        disabled={busy || conflict || !!task.archivedAt}
+        mainExtra={
+          <TaskChecklist
+            task={task}
+            save={saveDetail}
+            disabled={busy || conflict}
           />
-          <TaskGoals
-            showEditor={extra === "goal"}
-            key={task.id}
-            taskId={task.id}
-          />
-          <TaskChallenges
-            showEditor={extra === "challenge"}
-            key={`challenges-${task.id}`}
-            taskId={task.id}
-          />
-          {extra === "repeat" && <SeriesSettings task={task} save={save} />}
-
-          {(extra === "related" || task.relationsFrom.length > 0) && (
-            <section className="subsection">
-              <h3>Related work</h3>
-              {task.relationsFrom.map((r) => (
-                <p key={r.targetTaskId + r.relationType} className="meta-line">
-                  {human(r.relationType)} →{" "}
-                  {(() => {
-                    const target =
-                      r.target ||
-                      data.tasks.find((t) => t.id === r.targetTaskId);
-                    return target
-                      ? target.title +
-                          (target.seriesId
-                            ? ` · ${target.plannedDate?.slice(0, 10) || "Unscheduled"}`
-                            : "")
-                      : "Archived task";
-                  })()}
-                </p>
-              ))}
-              {extra === "related" && (
+        }
+        settingsExtra={
+          <>
+            <fieldset
+              className="task-edit-auxiliary"
+              disabled={busy || conflict}
+            >
+              <div className="task-edit-setting task-edit-repeat">
+                <SeriesSettings
+                  task={task}
+                  save={saveDetail}
+                  today={data.today}
+                />
+              </div>
+              <DetailSection title="Comments">
+                <TaskComments
+                  taskId={task.id}
+                  timezone={data.user.timezone}
+                  save={saveDetail}
+                />
+              </DetailSection>
+              <DetailSection title="Goals">
+                <TaskGoals taskId={task.id} />
+              </DetailSection>
+              <DetailSection title="Challenges">
+                <TaskChallenges taskId={task.id} />
+              </DetailSection>
+              <DetailSection title="Related tasks">
+                {task.relationsFrom.map((relation) => (
+                  <p
+                    key={relation.targetTaskId + relation.relationType}
+                    className="task-edit-related"
+                  >
+                    {human(relation.relationType)} →{" "}
+                    {relation.target?.title ||
+                      data.tasks.find(
+                        (item) => item.id === relation.targetTaskId,
+                      )?.title ||
+                      "Archived task"}
+                  </p>
+                ))}
                 <form
                   className="form-stack"
-                  onSubmit={(e) => submit(e, "task.relate")}
+                  onSubmit={(event) => void submit(event, "task.relate")}
                 >
                   <TaskPicker
                     excludeIds={[task.id]}
-                    key={task.relationsFrom.length}
                     tasks={data.tasks.filter(
-                      (t) => t.id !== task.id && !t.archivedAt,
+                      (item) => item.id !== task.id && !item.archivedAt,
                     )}
                     required
                   />
@@ -189,9 +256,9 @@ export function TaskDetail({
                         "RELATED_TO",
                         "FOLLOW_UP_TO",
                         "SUBTASK_OF",
-                      ].map((r) => (
-                        <option key={r} value={r}>
-                          {human(r)}
+                      ].map((value) => (
+                        <option key={value} value={value}>
+                          {human(value)}
                         </option>
                       ))}
                     </select>
@@ -200,38 +267,45 @@ export function TaskDetail({
                     Link task
                   </button>
                 </form>
-              )}
-            </section>
-          )}
-          <button
-            className="text-button danger"
-            onClick={async () => {
-              if (
-                await save({
-                  type: "task.archive",
-                  id: task.id,
-                  version: task.version,
-                  archived: !task.archivedAt,
-                })
-              )
-                onClose();
-            }}
-          >
-            {task.archivedAt ? "Restore from archive" : "Archive task"}
-          </button>
-        </>
-      )}
-      {tab === "Activity" && (
-        <>
-          {extra === "effort" && (
-            <section className="subsection first">
-              <h3>Record effort</h3>
-
-              <form
-                className="form-stack"
-                onSubmit={(e) => submit(e, "task.effort")}
-              >
-                <div className="form-grid">
+              </DetailSection>
+              <DetailSection title="Reminders">
+                <p className="muted small">
+                  Shown when you open or refresh the app after the reminder
+                  time.
+                </p>
+                {data.reminders
+                  .filter((reminder) => reminder.taskId === task.id)
+                  .map((reminder) => (
+                    <p key={reminder.id} className="muted small">
+                      {new Date(reminder.scheduledFor).toLocaleString("en", {
+                        timeZone: data.user.timezone,
+                      })}
+                    </p>
+                  ))}
+                <form
+                  className="form-stack"
+                  onSubmit={(event) => void submit(event, "reminder.create")}
+                >
+                  <div className="field">
+                    <span>{data.user.timezone}</span>
+                    <DatePicker
+                      label="Reminder date and time"
+                      name="scheduledFor"
+                      today={data.today}
+                      includeTime
+                      required
+                    />
+                  </div>
+                  <button className="button" disabled={busy}>
+                    Set reminder
+                  </button>
+                </form>
+              </DetailSection>
+              <DetailSection title="Record effort">
+                <form
+                  className="form-stack"
+                  onSubmit={(event) => void submit(event, "task.effort")}
+                >
                   <Field label="Minutes">
                     <input
                       name="minutes"
@@ -242,89 +316,81 @@ export function TaskDetail({
                       placeholder="25"
                     />
                   </Field>
-                  <Field label="Occurred on">
-                    <input
+                  <div className="field">
+                    <span>Occurred on</span>
+                    <DatePicker
+                      label="Occurred on"
                       name="occurredOn"
-                      type="date"
+                      today={data.today}
                       defaultValue={data.today}
                       required
                     />
+                  </div>
+                  <Field label="Note">
+                    <textarea
+                      name="note"
+                      rows={2}
+                      placeholder="What did you work on?"
+                    />
                   </Field>
-                </div>
-                <Field label="Note">
-                  <textarea
-                    name="note"
-                    rows={2}
-                    placeholder="What did you work on?"
-                  />
-                </Field>
-                <button className="button primary" disabled={busy}>
-                  Record effort
-                </button>
-              </form>
-            </section>
-          )}
-          {extra === "reminder" && (
-            <section className="subsection">
-              <h3>In-app reminder</h3>
-              <p className="muted">
-                Appears when you open or refresh the workspace after this time.
-              </p>
-              <form
-                className="inline-form"
-                onSubmit={(e) => submit(e, "reminder.create")}
-              >
-                <Field label={data.user.timezone}>
-                  <input name="scheduledFor" type="datetime-local" required />
-                </Field>
-                <button className="button" disabled={busy}>
-                  Set reminder
-                </button>
-              </form>
-            </section>
-          )}
-          {extra === "history" && (
-            <section className="subsection">
-              <h3>History</h3>
-              <RemoteHistory
-                taskId={task.id}
-                timezone={data.user.timezone}
-                revision={data}
-              />
-            </section>
-          )}
-        </>
-      )}
-      {!task.archivedAt &&
-        !["COMPLETED", "CANCELLED"].includes(task.status) && (
-          <footer className="task-detail-footer">
-            <button
-              type="button"
-              className="button"
-              disabled={busy}
-              title={`Move to ${addDays(data.today, 1)} and extend the due date by one day`}
-              onClick={async () => {
-                if (busy) return;
-                setBusy(true);
-                try {
+                  <button className="button" disabled={busy}>
+                    Record effort
+                  </button>
+                </form>
+              </DetailSection>
+              <DetailSection title="Activity history">
+                <RemoteHistory
+                  taskId={task.id}
+                  timezone={data.user.timezone}
+                  revision={task}
+                />
+              </DetailSection>
+              <button
+                className="text-button task-edit-archive"
+                disabled={busy}
+                onClick={async () => {
                   if (
-                    await save({
-                      type: "task.tomorrow",
+                    await saveDetail({
+                      type: "task.archive",
                       id: task.id,
                       version: task.version,
+                      archived: !task.archivedAt,
                     })
                   )
                     onClose();
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              <CalendarArrowUp size={16} />
-              {busy ? "Moving…" : "Move to tomorrow"}
-            </button>
-          </footer>
-        )}
-    </>
+                }}
+              >
+                <Archive size={15} />
+                {task.archivedAt ? "Restore from archive" : "Archive task"}
+              </button>
+            </fieldset>
+            {!task.archivedAt &&
+              !["COMPLETED", "CANCELLED"].includes(task.status) && (
+                <footer className="task-edit-footer">
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={busy || conflict}
+                    title={`Move to ${addDays(data.today, 1)} and extend the due date by one day`}
+                    onClick={async () => {
+                      if (
+                        await saveDetail({
+                          type: "task.tomorrow",
+                          id: task.id,
+                          version: task.version,
+                        })
+                      )
+                        onClose();
+                    }}
+                  >
+                    <CalendarArrowUp size={16} />
+                    Move to tomorrow
+                  </button>
+                </footer>
+              )}
+          </>
+        }
+      />
+    </div>
   );
 }

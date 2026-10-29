@@ -1,4 +1,5 @@
 import { nextDayDueDate, tomorrowDate } from "./task-scheduling";
+import { resolveWorkCategoryIds } from "./work-mode";
 import { createHash } from "node:crypto";
 import { validateJournalDocument } from "./journal-document";
 import { Prisma } from "@/generated/prisma/client";
@@ -143,6 +144,89 @@ async function executeOnce(
               ? tx.category.update({ where: { id: c.id }, data })
               : tx.entity.update({ where: { id: c.id }, data });
           }
+          case "task.checklist.add":
+          case "task.checklist.update":
+          case "task.checklist.remove": {
+            const parent = await taskFor(tx, userId, c.id);
+            if (parent.version !== c.version)
+              throw new ConflictError(
+                "This task changed. Refresh and try again.",
+              );
+            if (parent.archivedAt)
+              throw new DomainError(
+                "Restore this task before editing its checklist.",
+              );
+            let before: unknown;
+            let after: unknown;
+            if (c.type === "task.checklist.add") {
+              if (
+                (await tx.taskChecklistItem.count({
+                  where: { userId, parentTaskId: parent.id },
+                })) >= 200
+              )
+                throw new DomainError(
+                  "A task can contain up to 200 checklist items.",
+                );
+              const last = await tx.taskChecklistItem.aggregate({
+                where: { userId, parentTaskId: parent.id },
+                _max: { sortOrder: true },
+              });
+              after = await tx.taskChecklistItem.create({
+                data: {
+                  userId,
+                  parentTaskId: parent.id,
+                  title: c.title,
+                  sortOrder: (last._max.sortOrder ?? -1) + 1,
+                },
+              });
+            } else {
+              const item = await tx.taskChecklistItem.findFirst({
+                where: { id: c.itemId, userId, parentTaskId: parent.id },
+              });
+              if (!item) throw new DomainError("Checklist item not found.");
+              before = item;
+              if (c.type === "task.checklist.remove") {
+                await tx.taskChecklistItem.delete({ where: { id: item.id } });
+              } else {
+                if (
+                  c.title === undefined &&
+                  c.isCompleted === undefined &&
+                  c.sortOrder === undefined
+                )
+                  throw new DomainError("Choose a checklist change.");
+                after = await tx.taskChecklistItem.update({
+                  where: { id: item.id },
+                  data: {
+                    ...(c.title === undefined ? {} : { title: c.title }),
+                    ...(c.isCompleted === undefined
+                      ? {}
+                      : { isCompleted: c.isCompleted }),
+                    ...(c.sortOrder === undefined
+                      ? {}
+                      : { sortOrder: c.sortOrder }),
+                  },
+                });
+              }
+            }
+            const updated = await tx.task.update({
+              where: { id: parent.id },
+              data: { version: { increment: 1 } },
+            });
+            await event(
+              parent.id,
+              "UPDATED",
+              before === undefined ? undefined : { checklistItem: before },
+              { checklistItem: after ?? null, action: c.type },
+            );
+            return {
+              id: parent.id,
+              version: updated.version,
+              checklistItems: await tx.taskChecklistItem.findMany({
+                where: { userId, parentTaskId: parent.id },
+                orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+              }),
+            };
+          }
           case "task.comment": {
             await taskFor(tx, userId, c.id);
             return tx.taskComment.create({
@@ -272,7 +356,123 @@ async function executeOnce(
                 ...(owner ? { reason: "Moved to tomorrow" } : {}),
               },
             );
-            return { id: task.id };
+            return { id: task.id, version: task.version + 1 };
+          }
+          case "tasks.rescheduleOverdue": {
+            const owner = await tx.user.findUniqueOrThrow({
+              where: { id: userId },
+              select: {
+                id: true,
+                timezone: true,
+                workModeEnabled: true,
+                workCategoryIds: true,
+              },
+            });
+            const today = dateKey(new Date(), owner.timezone);
+            if (c.plannedDate < today)
+              throw new DomainError("Choose today or a future date.");
+            const categories = await tx.category.findMany({
+              where: { userId },
+              select: {
+                id: true,
+                parentId: true,
+                isActive: true,
+                archivedAt: true,
+              },
+            });
+            const allowed = resolveWorkCategoryIds(owner, categories);
+            const filters: Prisma.TaskWhereInput[] = [
+              {
+                userId,
+                archivedAt: null,
+                status: { notIn: ["COMPLETED", "CANCELLED"] },
+                plannedDate: { lt: new Date(today) },
+              },
+            ];
+            if (allowed !== null)
+              filters.push({ primaryCategoryId: { in: allowed } });
+            if (c.scope.category) {
+              if (
+                !categories.some((category) => category.id === c.scope.category)
+              )
+                throw new DomainError("Category unavailable.");
+              filters.push({
+                primaryCategoryId: {
+                  in: [...descendants(categories, c.scope.category)],
+                },
+              });
+            }
+            if (c.scope.project)
+              filters.push({
+                entities: { some: { entityId: c.scope.project, userId } },
+              });
+            if (c.scope.entity)
+              filters.push({
+                entities: { some: { entityId: c.scope.entity, userId } },
+              });
+            if (c.scope.tag)
+              filters.push({ tags: { some: { tagId: c.scope.tag, userId } } });
+            if (c.scope.search)
+              filters.push({
+                OR: [
+                  { title: { contains: c.scope.search, mode: "insensitive" } },
+                  {
+                    description: {
+                      contains: c.scope.search,
+                      mode: "insensitive",
+                    },
+                  },
+                ],
+              });
+            if (
+              c.scope.status &&
+              c.scope.status !== "ALL" &&
+              c.scope.status !== "OPEN"
+            )
+              filters.push({ status: c.scope.status });
+            // Resolve the complete scope on the server rather than accepting the
+            // currently loaded page of IDs. The owner lock above serializes all
+            // task mutations, and the transaction commits dates and history together.
+            const tasks = await tx.task.findMany({
+              where: { AND: filters },
+              select: { id: true, plannedDate: true, dueAt: true },
+            });
+            if (!tasks.length) return { id: userId, count: 0 };
+            const taskIds = tasks.map((task) => task.id);
+            await tx.task.updateMany({
+              where: { userId, id: { in: taskIds } },
+              data: {
+                plannedDate: asDate(c.plannedDate),
+                version: { increment: 1 },
+              },
+            });
+            await tx.task.updateMany({
+              where: { userId, id: { in: taskIds }, status: "INBOX" },
+              data: { status: "PLANNED" },
+            });
+            // Keep the original recurrence identity so regeneration cannot
+            // recreate a moved occurrence or change any future schedule.
+            await tx.task.updateMany({
+              where: { userId, id: { in: taskIds }, seriesId: { not: null } },
+              data: { isException: true },
+            });
+            await tx.taskEvent.createMany({
+              data: tasks.map((task) => ({
+                userId,
+                taskId: task.id,
+                eventType: "RESCHEDULED",
+                fromValue: {
+                  plannedDate: task.plannedDate!.toISOString(),
+                  dueAt: task.dueAt?.toISOString() || null,
+                },
+                toValue: {
+                  plannedDate: c.plannedDate,
+                  dueAt: task.dueAt?.toISOString() || null,
+                  reason: "Bulk reschedule overdue tasks",
+                },
+              })),
+            });
+            return { id: userId, count: tasks.length };
           }
           case "tasks.capture": {
             const categoryIds = [
@@ -332,7 +532,7 @@ async function executeOnce(
             if (task.version !== c.version)
               throw new ConflictError("Task changed. Refresh and try again.");
             await attachSeries(tx, userId, task.id, c.repeat);
-            return { id: task.id };
+            return { id: task.id, version: task.version + 1 };
           }
           case "series.schedule":
             return changeSchedule(
@@ -580,7 +780,11 @@ async function executeOnce(
                   version: { increment: 1 },
                 },
               });
-              return { id: old.id };
+              return {
+                id: old.id,
+                version: old.version + 1,
+                seriesVersion: series.version + 1,
+              };
             }
             if (c.type === "task.archive") {
               await tx.task.update({
@@ -596,7 +800,7 @@ async function executeOnce(
                 { archived: !!old.archivedAt },
                 { archived: c.archived },
               );
-              return { id: old.id };
+              return { id: old.id, version: old.version + 1 };
             }
             const statusData = {
               status: c.status,
@@ -674,7 +878,7 @@ async function executeOnce(
                 { status: old.status },
                 { status: c.status },
               );
-            return { id: old.id };
+            return { id: old.id, version: old.version + 1 };
           }
           case "task.effort": {
             const t = await taskFor(tx, userId, c.id);

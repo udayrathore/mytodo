@@ -1,6 +1,6 @@
 "use client";
-import { TaskCreateExtras, readTaskCreateExtras } from "./task-create-extras";
-import { TaskPriorityDials } from "./task-priority-dials";
+import { TaskComposer } from "./task-composer";
+import { DatePicker } from "./date-picker";
 import { useMemo, useState, useEffect, type FormEvent } from "react";
 import {
   ChevronLeft,
@@ -10,13 +10,10 @@ import {
   Plus,
 } from "lucide-react";
 import type { Workspace, Task } from "@/lib/workspace";
+import { isPendingTask } from "@/lib/task-scheduling";
 import { addDays } from "@/lib/domain";
 import { trackerColumns, trackerEntries, taskEntries } from "@/lib/tracker";
-import { Drawer, duration, inputToIso } from "./ui";
-import {
-  RepeatFields,
-  readRepeat,
-} from "./task-options";
+import { Drawer, duration } from "./ui";
 import { Repeat2 } from "lucide-react";
 import { TaskPicker } from "./task-picker";
 import type { Save } from "./task-form";
@@ -46,32 +43,10 @@ export function CategoryGrid({
   const columns = useMemo(() => trackerColumns(data), [data]);
   const showActivity = false;
   const [pending, setPending] = useState<string | null>(null);
-  const nextIds = useMemo(() => {
-    const next = new Map<string, Task>();
-    for (const task of [...data.tasks].sort(
-      (a, b) =>
-        (a.plannedDate || "9999").localeCompare(b.plannedDate || "9999") ||
-        a.id.localeCompare(b.id),
-    )) {
-      if (
-        task.seriesId &&
-        !task.archivedAt &&
-        !["COMPLETED", "CANCELLED"].includes(task.status) &&
-        !next.has(task.seriesId)
-      )
-        next.set(task.seriesId, task);
-    }
-    return new Set([...next.values()].map((t) => t.id));
-  }, [data]);
+  // Activity dates never assign an undated task a place in the planning grid.
   const todos = useMemo(
-    () =>
-      taskEntries(data).filter(
-        (e) =>
-          !e.task.seriesId ||
-          e.task.status === "COMPLETED" ||
-          nextIds.has(e.task.id),
-      ),
-    [data, nextIds],
+    () => taskEntries(data).filter((entry) => entry.task.plannedDate),
+    [data],
   );
   const entries = useMemo(
     () =>
@@ -104,10 +79,8 @@ export function CategoryGrid({
   const unplaced = data.tasks.filter(
     (t) =>
       !t.archivedAt &&
-      (!t.seriesId || nextIds.has(t.id)) &&
       !["COMPLETED", "CANCELLED"].includes(t.status) &&
-      ((t.plannedDate && t.plannedDate.slice(0, 10) < data.today) ||
-        !todos.some((e) => e.task.id === t.id) ||
+      (!todos.some((e) => e.task.id === t.id) ||
         !columns.some(
           (c) => t.primaryCategoryId && c.descendants.has(t.primaryCategoryId),
         )),
@@ -138,7 +111,6 @@ export function CategoryGrid({
             Today
           </button>
         </div>
-
       </div>
       <div
         className="sheet-scroll"
@@ -250,8 +222,9 @@ export function CategoryGrid({
                               }}
                               className={
                                 "sheet-entry todo-entry " +
-                                "" +
-                                " " +
+                                (isPendingTask(e.task, data.today)
+                                  ? "is-pending "
+                                  : "") +
                                 (e.task.status === "COMPLETED"
                                   ? "is-complete"
                                   : "")
@@ -283,7 +256,6 @@ export function CategoryGrid({
                                   aria-label={`Open ${e.task.title}`}
                                 >
                                   {e.task.title}
-
                                 </button>
                                 {e.task.seriesId && (
                                   <span
@@ -296,6 +268,11 @@ export function CategoryGrid({
                                   </span>
                                 )}
                               </div>
+                              {isPendingTask(e.task, data.today) && (
+                                <span className="pending-task-label">
+                                  Pending
+                                </span>
+                              )}
                               {e.task.status === "IN_PROGRESS" && (
                                 <span className="todo-status status-in_progress">
                                   Ongoing
@@ -328,36 +305,38 @@ export function CategoryGrid({
       {unplaced.length > 0 && (
         <details className="unplaced-tasks" open>
           <summary>
-            {unplaced.length} unfinished tasks from earlier or without a place
+            {unplaced.length} unfinished tasks without a date or category
           </summary>
           <div>
-            {unplaced.map((t) =>
-              (
-                <div
-                  className={"backlog-task"}
-                  key={t.id}
-                >
-                  <button
-                    className="todo-check"
-                    role="checkbox"
-                    aria-checked={false}
-                    aria-label={`Complete ${t.title}`}
-                    disabled={pending !== null}
-                    onClick={() => changeStatus(t, "COMPLETED")}
-                  />
-                  <button onClick={() => openTask(t)}>
-                    {t.title}
+            {unplaced.map((t) => (
+              <div
+                className={
+                  "backlog-task" +
+                  (isPendingTask(t, data.today) ? " is-pending" : "")
+                }
+                key={t.id}
+              >
+                <button
+                  className="todo-check"
+                  role="checkbox"
+                  aria-checked={false}
+                  aria-label={`Complete ${t.title}`}
+                  disabled={pending !== null}
+                  onClick={() => changeStatus(t, "COMPLETED")}
+                />
+                <button onClick={() => openTask(t)}>
+                  {t.title}
 
-                    <ArrowUpRight size={13} />
-                  </button>
-                </div>
-              ),
-            )}
+                  <ArrowUpRight size={13} />
+                </button>
+              </div>
+            ))}
           </div>
         </details>
       )}
       {cell && (
-        <Drawer popup
+        <Drawer
+          popup
           title={cell.mode === "plan" ? "Add a task" : "Record what you did"}
           onClose={() => setCell(null)}
         >
@@ -373,7 +352,25 @@ export function CategoryGrid({
     </section>
   );
 }
-export function QuickTaskForm({
+export function QuickTaskForm(props: {
+  data: Workspace;
+  cell: { date: string; categoryId: string; mode: "plan" | "log" };
+  save: Save;
+  onDone: () => void;
+}) {
+  return props.cell.mode === "plan" ? (
+    <TaskComposer
+      data={props.data}
+      save={props.save}
+      onDone={props.onDone}
+      defaultDate={props.cell.date}
+      defaultCategoryId={props.cell.categoryId}
+    />
+  ) : (
+    <ActivityTaskForm {...props} />
+  );
+}
+function ActivityTaskForm({
   data,
   cell,
   save,
@@ -384,7 +381,6 @@ export function QuickTaskForm({
   save: Save;
   onDone: () => void;
 }) {
-  const mode = cell.mode;
   const [categoryId, setCategoryId] = useState(cell.categoryId);
   const [taskId, setTaskId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -408,148 +404,116 @@ export function QuickTaskForm({
     if (busy) return;
     setBusy(true);
     const f = new FormData(e.currentTarget);
-    const command =
-      mode === "plan"
-        ? {
-            type: "task.create",
-
-
-
-            repeat: readRepeat(f),
-            ...readTaskCreateExtras(f, data.user.timezone),
-            dueAt: f.get("dueAt") ? inputToIso(String(f.get("dueAt")), data.user.timezone) : null,
-            estimatedMinutes: f.get("estimatedMinutes") ? Number(f.get("estimatedMinutes")) : null,
-            tagIds: f.getAll("tagIds"), entityIds: f.getAll("entityIds"),
-            relationshipType: f.get("relationshipType") || "CONTRIBUTES_TO",
-            urgency: Number(f.get("urgency")),
-            importance: Number(f.get("importance")),
-            title: f.get("title"),
-            description: f.get("note") || "",
-            primaryCategoryId: categoryId || null,
-            plannedDate: f.get("date"),
-          }
-        : {
-            type: "activity.log",
-
-
-
-            taskId: taskId || null,
-            title: taskId ? undefined : f.get("title"),
-            primaryCategoryId: categoryId || null,
-            occurredOn: f.get("date"),
-            note: f.get("note"),
-            minutes: f.get("minutes") ? Number(f.get("minutes")) : null,
-            complete: f.get("complete") === "on",
-          };
+    const command = {
+      type: "activity.log",
+      taskId: taskId || null,
+      title: taskId ? undefined : f.get("title"),
+      primaryCategoryId: categoryId || null,
+      occurredOn: f.get("date"),
+      note: f.get("note"),
+      minutes: f.get("minutes") ? Number(f.get("minutes")) : null,
+      complete: f.get("complete") === "on",
+    };
     if (await save(command)) onDone();
     setBusy(false);
   }
   return (
     <form className="form-stack quick-task-popup-form" onSubmit={submit}>
-      {(mode === "plan" || !taskId) && (
+      {!taskId && (
         <label className="field">
-          <span className="sr-only">{mode === "plan" ? "Task name" : "What did you do?"}</span>
+          <span className="sr-only">What did you do?</span>
           <input
             autoFocus
             name="title"
             required
             maxLength={240}
-            placeholder={
-              mode === "plan" ? "Task name" : "What did you finish?"
-            }
+            placeholder="What did you finish?"
           />
         </label>
       )}
       <div className="task-basics-row">
-          <label className="field">
-            Category
-            <select
-              value={categoryId}
-              onChange={(e) => {
-                setCategoryId(e.target.value);
-                setTaskId("");
-              }}
-            >
-              {!root && <option value="">Choose a category</option>}
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.id === root?.id ? c.name : `↳ ${c.name}`}
-                </option>
-              ))}
-            </select>
-          </label>
-      {mode === "plan" && <TaskPriorityDials />}
+        <label className="field">
+          Category
+          <select
+            value={categoryId}
+            onChange={(e) => {
+              setCategoryId(e.target.value);
+              setTaskId("");
+            }}
+          >
+            {!root && <option value="">Choose a category</option>}
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.id === root?.id ? c.name : `↳ ${c.name}`}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
       <details className="task-options">
-        <summary className="task-details-toggle" aria-label="Task details" data-tooltip="Task details"><Plus size={20} aria-hidden="true" /></summary>
+        <summary
+          className="task-details-toggle"
+          aria-label="Task details"
+          data-tooltip="Task details"
+        >
+          <Plus size={20} aria-hidden="true" />
+        </summary>
         <div className="form-stack">
-
-          {mode === "plan" && <><RepeatFields /><TaskCreateExtras data={data} /></>}
-
-          {mode === "log" && (
-            <TaskPicker
-              categoryId={categoryId || undefined}
-              key={categoryId}
-              tasks={tasks}
-              label="Link to a task"
-              empty="New activity"
-              onChange={setTaskId}
-            />
-          )}
-          <label className="field">
-            Date
-            <input
+          <TaskPicker
+            categoryId={categoryId || undefined}
+            key={categoryId}
+            tasks={tasks}
+            label="Link to a task"
+            empty="New activity"
+            onChange={setTaskId}
+          />
+          <div className="field">
+            <span>Date</span>
+            <DatePicker
               name="date"
-              type="date"
+              label="Activity date"
+              today={data.today}
               required
               defaultValue={cell.date}
-              max={mode === "log" ? data.today : undefined}
+              max={data.today}
             />
-          </label>
+          </div>
           <label className="field">
-            {mode === "plan" ? "Notes" : "Activity notes"}
+            Activity notes
             <textarea
               name="note"
               rows={3}
               maxLength={20000}
-              placeholder={
-                mode === "plan"
-                  ? "Notes"
-                  : "What happened? What did you work on?"
-              }
+              placeholder="What happened? What did you work on?"
             />
           </label>
-          {mode === "log" && (
-            <>
-              <label className="field">
-                Minutes <span className="muted">(optional)</span>
-                <input
-                  name="minutes"
-                  type="number"
-                  min={1}
-                  max={1440}
-                  placeholder="Leave blank if you’re not tracking time"
-                />
-              </label>
-              <label className="checkbox-label">
-                <input
-                  key={taskId}
-                  type="checkbox"
-                  name="complete"
-                  defaultChecked={!taskId}
-                />{" "}
-                Mark this task complete
-              </label>
-              <p className="muted small">
-                Each log is a separate activity. You can log work against the
-                same task again.
-              </p>
-            </>
-          )}
+          <label className="field">
+            Minutes <span className="muted">(optional)</span>
+            <input
+              name="minutes"
+              type="number"
+              min={1}
+              max={1440}
+              placeholder="Leave blank if you’re not tracking time"
+            />
+          </label>
+          <label className="checkbox-label">
+            <input
+              key={taskId}
+              type="checkbox"
+              name="complete"
+              defaultChecked={!taskId}
+            />{" "}
+            Mark this task complete
+          </label>
+          <p className="muted small">
+            Each log is a separate activity. You can log work against the same
+            task again.
+          </p>
         </div>
       </details>
       <button type="submit" className="button primary" disabled={busy}>
-        {busy ? "Saving…" : mode === "plan" ? "Add task" : "Save activity"}
+        {busy ? "Saving…" : "Save activity"}
       </button>
     </form>
   );

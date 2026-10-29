@@ -51,8 +51,9 @@ export function trackerEntries(
     });
 }
 export function trackerColumns(data: Pick<Workspace, "categories">) {
+  const visibleIds = new Set(data.categories.map((c) => c.id));
   return data.categories
-    .filter((c) => !c.parentId && c.isActive)
+    .filter((c) => c.isActive && (!c.parentId || !visibleIds.has(c.parentId)))
     .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
     .map((c) => ({ ...c, descendants: descendants(data.categories, c.id) }));
 }

@@ -1,4 +1,5 @@
 "use client";
+import { DatePicker } from "./date-picker";
 import { useState } from "react";
 import type { Workspace } from "@/lib/workspace";
 import { Field, inputToIso, human } from "./ui";
@@ -66,9 +67,15 @@ export function TaskCreateExtras({
           <details>
             <summary>Due date & time estimate</summary>
             <div className="form-stack">
-              <Field label={`Due · ${data.user.timezone}`}>
-                <input type="datetime-local" name="dueAt" />
-              </Field>
+              <div className="field">
+                <span>Due · {data.user.timezone}</span>
+                <DatePicker
+                  label="Due date and time"
+                  name="dueAt"
+                  today={data.today}
+                  includeTime
+                />
+              </div>
               <Field label="Estimated minutes">
                 <input
                   type="number"
@@ -163,9 +170,15 @@ export function TaskCreateExtras({
       </details>
       <details>
         <summary>Add a reminder</summary>
-        <Field label={`Remind me · ${data.user.timezone}`}>
-          <input name="reminderAt" type="datetime-local" />
-        </Field>
+        <div className="field">
+          <span>Remind me · {data.user.timezone}</span>
+          <DatePicker
+            label="Reminder date and time"
+            name="reminderAt"
+            today={data.today}
+            includeTime
+          />
+        </div>
         <p className="muted">
           Appears when you open or refresh the app after this time.
         </p>

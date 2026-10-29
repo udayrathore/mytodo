@@ -138,7 +138,7 @@ export async function GET(request: Request) {
             ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
           },
           tasks: {
-            where: { task: taskScope },
+            where: { task: { ...taskScope, plannedDate: { not: null } } },
             include: { task: { select: taskSelect } },
           },
         },

@@ -39,12 +39,21 @@ export async function getWorkspace(
   const from = q.from || (q.through ? addDays(through, -6) : today);
   if (from > through || Date.parse(through) - Date.parse(from) > 31 * 86400000)
     throw new Error("Choose at most 31 days.");
-  if (["today", "category", "projects", "week", "tasks"].includes(q.view))
-    await ensureRecurringTasks(userId, today, through, from);
-  const allCategoryRows = await db.category.findMany({
-    where: { userId },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-  });
+  // Metadata reads are independent of recurrence materialization. Starting them
+  // together avoids another database round trip on every authenticated load.
+  const [[allCategoryRows, tagRows, entityRows]] = await Promise.all([
+    Promise.all([
+      db.category.findMany({
+        where: { userId },
+        orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      }),
+      db.tag.findMany({ where: { userId }, orderBy: { name: "asc" } }),
+      db.entity.findMany({ where: { userId }, orderBy: { name: "asc" } }),
+    ]),
+    ["today", "category", "projects", "week", "tasks"].includes(q.view)
+      ? ensureRecurringTasks(userId, today, through, from)
+      : Promise.resolve(),
+  ]);
   const allowed = resolveWorkCategoryIds(user, allCategoryRows);
   const categoryRows =
     allowed === null
@@ -61,18 +70,14 @@ export async function getWorkspace(
       ? {}
       : { categories: { some: { categoryId: { in: allowed } } } };
   if (["library", "categories"].includes(q.view)) {
-    const [tags, entities] = await Promise.all([
-      db.tag.findMany({ where: { userId }, orderBy: { name: "asc" } }),
-      db.entity.findMany({ where: { userId }, orderBy: { name: "asc" } }),
-    ]);
     return JSON.parse(
       JSON.stringify({
         user: { name: user.name, timezone: user.timezone },
         today,
         workMode,
         categories: categoryRows,
-        tags,
-        entities,
+        tags: tagRows,
+        entities: entityRows,
         tasks: [],
         periods: [],
         templates: [],
@@ -88,6 +93,8 @@ export async function getWorkspace(
     filters.push({ id: q.task || "00000000-0000-0000-0000-000000000000" });
   else {
     filters.push({ archivedAt: q.archive === "true" ? { not: null } : null });
+    // Undated tasks remain saved and directly retrievable, but are hidden from lists for now.
+    if (q.view !== "picker") filters.push({ plannedDate: { not: null } });
     if (q.category)
       filters.push({
         primaryCategoryId: { in: [...descendants(categoryRows, q.category)] },
@@ -116,10 +123,16 @@ export async function getWorkspace(
         OR: [
           { plannedDate: { gte: new Date(from), lte: new Date(through) } },
           { plannedDate: null, status: { notIn: ["COMPLETED", "CANCELLED"] } },
-          {
-            plannedDate: { lt: new Date(from) },
-            status: { notIn: ["COMPLETED", "CANCELLED"] },
-          },
+          // Plan entries stay on their original date. Fetch unrelated older work
+          // only for collection browsing so it cannot displace this week's cells.
+          ...(q.view === "today" && q.dashboard === "plan"
+            ? []
+            : [
+                {
+                  plannedDate: { lt: new Date(from) },
+                  status: { notIn: ["COMPLETED", "CANCELLED"] },
+                } satisfies Prisma.TaskWhereInput,
+              ]),
           {
             effort: {
               some: {
@@ -164,24 +177,6 @@ export async function getWorkspace(
     )
       filters.push({ id: "00000000-0000-0000-0000-000000000000" });
   }
-  if (
-    q.view === "today" &&
-    q.dashboard === "plan" &&
-    !q.category &&
-    !q.entity &&
-    !q.tag
-  ) {
-    const next = await db.$queryRaw<{ id: string }[]>(
-      Prisma.sql`SELECT DISTINCT ON (series_id) id FROM tasks WHERE user_id=${userId}::uuid AND series_id IS NOT NULL AND archived_at IS NULL AND status NOT IN ('COMPLETED','CANCELLED') ORDER BY series_id,planned_date ASC NULLS LAST,id`,
-    );
-    filters.push({
-      OR: [
-        { seriesId: null },
-        { status: "COMPLETED" },
-        { id: { in: next.map((t) => t.id) } },
-      ],
-    });
-  }
   if (q.view === "today" && q.dashboard !== "plan")
     filters.push({
       status: {
@@ -197,8 +192,26 @@ export async function getWorkspace(
     !q.category &&
     !q.entity &&
     !q.tag
-  )
-    filters.push({ plannedDate: new Date(today) });
+  ) {
+    // Keep work checked off today visible even if it was overdue or undated.
+    const completedToday = await db.$queryRaw<{ id: string }[]>`
+      SELECT id FROM tasks
+      WHERE user_id=${userId}::uuid AND status='COMPLETED'
+        AND (completed_at AT TIME ZONE ${user.timezone})::date=${today}::date`;
+    filters.push({
+      OR: [
+        {
+          status: { notIn: ["COMPLETED", "CANCELLED"] },
+          OR: [
+            { plannedDate: { lte: new Date(today) } },
+            { plannedDate: null },
+          ],
+        },
+        { status: "COMPLETED", plannedDate: new Date(today) },
+        { id: { in: completedToday.map((task) => task.id) } },
+      ],
+    });
+  }
   if (q.view === "today" && q.dashboard === "manage")
     filters.push({
       plannedDate: { gte: new Date(from), lte: new Date(through) },
@@ -227,8 +240,11 @@ export async function getWorkspace(
     journals,
     events,
     reminders,
+    overdueCount,
   ] = await Promise.all([
     (async () => {
+      if (["journal", "timeline", "insights", "distribution"].includes(q.view))
+        return [];
       const args = {
         where: { AND: filters },
         orderBy:
@@ -259,6 +275,10 @@ export async function getWorkspace(
               version: true,
             },
           },
+          checklistItems:
+            q.view === "task"
+              ? { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }
+              : false,
           tags: true,
           entities: true,
           periods: true,
@@ -303,58 +323,54 @@ export async function getWorkspace(
       return [...open, ...completed];
     })(),
     Promise.resolve(categoryRows),
-    db.tag.findMany({ where: { userId }, orderBy: { name: "asc" } }),
-    db.entity.findMany({ where: { userId }, orderBy: { name: "asc" } }),
+    Promise.resolve(tagRows),
+    Promise.resolve(entityRows),
     db.planningPeriod.findMany({
       where: { userId },
       orderBy: { startsOn: "desc" },
     }),
     Promise.resolve([]),
-    db.journalEntry.findMany({
-      where: {
-        userId,
-        ...journalScope,
-        ...(q.view === "journal"
-          ? {
-              archivedAt: null,
-              ...(q.search
-                ? {
-                    OR: [
-                      {
-                        title: {
-                          contains: q.search,
-                          mode: "insensitive" as const,
-                        },
+    q.view === "journal"
+      ? db.journalEntry.findMany({
+          where: {
+            userId,
+            ...journalScope,
+            archivedAt: null,
+            ...(q.search
+              ? {
+                  OR: [
+                    {
+                      title: {
+                        contains: q.search,
+                        mode: "insensitive" as const,
                       },
-                      {
-                        content: {
-                          contains: q.search,
-                          mode: "insensitive" as const,
-                        },
+                    },
+                    {
+                      content: {
+                        contains: q.search,
+                        mode: "insensitive" as const,
                       },
-                    ],
-                  }
-                : {}),
-            }
-          : { id: "00000000-0000-0000-0000-000000000000" }),
-      },
-      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
-      take: 101,
-      ...(q.view === "journal" && q.cursor
-        ? { cursor: { id: q.cursor }, skip: 1 }
-        : {}),
-      include: { categories: true, entities: true },
-    }),
-    db.taskEvent.findMany({
-      where: {
-        userId,
-        ...(q.view === "task"
-          ? { taskId: q.task }
-          : { taskId: "00000000-0000-0000-0000-000000000000" }),
-      },
-      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
-      take: 100,
-    }),
+                    },
+                  ],
+                }
+              : {}),
+          },
+          orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+          take: 101,
+          ...(q.cursor ? { cursor: { id: q.cursor }, skip: 1 } : {}),
+          include: { categories: true, entities: true },
+        })
+      : Promise.resolve([]),
+    q.view === "task"
+      ? db.taskEvent.findMany({
+          where: {
+            userId,
+            taskId: q.task,
+          },
+          orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+          take: 100,
+        })
+      : Promise.resolve([]),
     db.reminder.findMany({
       where: {
         userId,
@@ -365,20 +381,33 @@ export async function getWorkspace(
       },
       take: 100,
       orderBy: { scheduledFor: "asc" },
-      include: { deliveries: true },
     }),
+    q.view === "today" && q.dashboard === "execute"
+      ? db.task.count({
+          where: {
+            AND: [
+              ...filters,
+              {
+                archivedAt: null,
+                status: { notIn: ["COMPLETED", "CANCELLED"] },
+                plannedDate: { lt: new Date(today) },
+              },
+            ],
+          },
+        })
+      : Promise.resolve(0),
   ]);
   const ids = tasks.slice(0, pageSize).map((t) => t.id);
-  const totals = ids.length
-    ? await db.taskEffortEntry.groupBy({
-        by: ["taskId"],
-        where: { userId, taskId: { in: ids } },
-        _sum: { minutes: true },
-      })
-    : [];
-  const activityEvents =
+  const [totals, activityEvents, sidebarCounts] = await Promise.all([
+    ids.length
+      ? db.taskEffortEntry.groupBy({
+          by: ["taskId"],
+          where: { userId, taskId: { in: ids } },
+          _sum: { minutes: true },
+        })
+      : [],
     ["today", "category", "projects"].includes(q.view) && ids.length
-      ? await db.taskEvent.findMany({
+      ? db.taskEvent.findMany({
           where: {
             userId,
             taskId: { in: ids },
@@ -388,10 +417,9 @@ export async function getWorkspace(
           orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
           take: 1000,
         })
-      : events;
-  const sidebarCounts =
+      : events,
     q.view === "today"
-      ? await db.$queryRaw<
+      ? db.$queryRaw<
           { kind: string; id: string; pending: number; upcoming: number }[]
         >(Prisma.sql`
     WITH RECURSIVE category_tree(root, id) AS (
@@ -400,7 +428,7 @@ export async function getWorkspace(
       SELECT tree.root, c.id FROM category_tree tree JOIN categories c ON c.parent_id=tree.id WHERE c.user_id=${userId}::uuid
     ), open_tasks AS (
       SELECT id, primary_category_id, planned_date FROM tasks
-      WHERE user_id=${userId}::uuid AND ${categorySql("primary_category_id", allowed)} AND archived_at IS NULL AND status NOT IN ('COMPLETED','CANCELLED')
+      WHERE user_id=${userId}::uuid AND ${categorySql("primary_category_id", allowed)} AND archived_at IS NULL AND planned_date IS NOT NULL AND status NOT IN ('COMPLETED','CANCELLED')
     ), memberships AS (
       SELECT 'all' AS kind, '' AS scope_id, id, planned_date FROM open_tasks
       UNION
@@ -414,7 +442,11 @@ export async function getWorkspace(
       (COUNT(*) FILTER (WHERE planned_date > ${today}::date))::int AS upcoming
     FROM memberships GROUP BY kind, scope_id
   `)
-      : undefined;
+      : undefined,
+  ]);
+  const totalByTask = new Map(
+    totals.map((row) => [row.taskId, row._sum.minutes]),
+  );
   return JSON.parse(
     JSON.stringify({
       sidebarCounts,
@@ -424,14 +456,20 @@ export async function getWorkspace(
       tasks: tasks.slice(0, pageSize).map((t) => ({
         ...t,
         fieldValues: [],
-        totalEffortMinutes:
-          totals.find((e) => e.taskId === t.id)?._sum.minutes ??
-          t.manualActualMinutes ??
-          0,
+        totalEffortMinutes: totalByTask.get(t.id) ?? t.manualActualMinutes ?? 0,
       })),
       page: {
         sort: q.sort,
         direction: q.direction,
+        overdueCount,
+        scope: {
+          category: q.category,
+          entity: q.entity,
+          tag: q.tag,
+          project: q.project,
+          search: q.search,
+          status: q.status,
+        },
         nextCursor:
           q.view === "journal"
             ? journals.length > 100
@@ -516,7 +554,16 @@ export type FieldValue = {
   datetimeValue: string | null;
   jsonValue: string[] | null;
 };
+export type TaskChecklistItem = {
+  id: string;
+  title: string;
+  isCompleted: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
 export type Task = {
+  checklistItems?: TaskChecklistItem[];
   totalEffortMinutes?: number;
   id: string;
 
@@ -525,7 +572,7 @@ export type Task = {
   isException: boolean;
   series: {
     id: string;
-    unit: "DAY" | "WEEK" | "MONTH";
+    unit: "DAY" | "WEEK" | "MONTH" | "WEEKDAY";
     interval: number;
     startsOn: string;
     endsOn: string | null;
@@ -596,6 +643,15 @@ export type Workspace = {
   page?: {
     sort?: "plannedDate" | "urgency" | "importance";
     direction?: "asc" | "desc";
+    overdueCount?: number;
+    scope?: {
+      category?: string;
+      entity?: string;
+      tag?: string;
+      project?: string;
+      search?: string;
+      status?: string;
+    };
     nextCursor: string | null;
     view: string;
     from: string;

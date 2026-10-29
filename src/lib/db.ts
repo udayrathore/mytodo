@@ -5,7 +5,7 @@ const globalDb = globalThis as unknown as {
   schemaVersion?: string;
 };
 // Regeneration must replace a cached pre-migration client during development HMR.
-const schemaVersion = "20261026-work-mode";
+const schemaVersion = "20261030-web-push";
 export function database() {
   if (!process.env.DATABASE_URL)
     throw new Error("DATABASE_URL is not configured. Follow README setup.");

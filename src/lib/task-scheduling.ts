@@ -46,3 +46,23 @@ export function nextDayDueDate(
 export function tomorrowDate(timezone: string, now = new Date()) {
   return addDays(dateKey(now, timezone), 1);
 }
+
+/** Pending work is open, unarchived, and scheduled no later than today (or undated). */
+export function isPendingTask(
+  task: {
+    status: string;
+    archivedAt?: Date | string | null;
+    plannedDate: Date | string | null;
+  },
+  today: string,
+): boolean {
+  const date =
+    task.plannedDate instanceof Date
+      ? task.plannedDate.toISOString().slice(0, 10)
+      : task.plannedDate?.slice(0, 10);
+  return (
+    !task.archivedAt &&
+    !["COMPLETED", "CANCELLED"].includes(task.status) &&
+    (!date || date <= today)
+  );
+}

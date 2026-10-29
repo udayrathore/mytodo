@@ -39,6 +39,12 @@ export async function POST(request: Request) {
         ok: true,
         id: result?.id,
         ...(result && "version" in result ? { version: result.version } : {}),
+        ...(result && "seriesVersion" in result
+          ? { seriesVersion: result.seriesVersion }
+          : {}),
+        ...(result && "checklistItems" in result
+          ? { checklistItems: result.checklistItems }
+          : {}),
         ...(collection ? { patch: { collection, record: result } } : {}),
       },
       {
