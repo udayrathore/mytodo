@@ -115,34 +115,39 @@ No deployment or paid service is required to run locally. For production:
 5. Deploy, sign in, capture a test task, reopen it, record effort, and verify persistence after a reload. Create a journal entry and sign out. Check that `/api/workspace` then returns 401.
 6. Do not seed production unless you intentionally want the example records.
 
-The architecture uses no local filesystem at runtime or always-on worker. Optional Web Push delivers daily summaries through the browser's push service and requires the configuration below. In-app reminders remain access-driven and do not require cron. Free-tier limits and Vercel Hobby usage eligibility remain subject to the providers' current terms.
+The architecture uses no local filesystem at runtime or always-on worker. Web Push implementation is retained for future use but notifications are currently paused and disabled by default. PWA installation works independently. In-app reminders remain access-driven and do not require cron. Free-tier limits and Vercel Hobby usage eligibility remain subject to the providers' current terms.
 
-## Installable app and daily summaries
+## Installable app
 
-Open the deployed HTTPS app and choose your browser's **Install app**, **Add to Dock**, or **Add to Home Screen** option. Account settings also offers installation when the browser supports a prompt. On iPhone and iPad, install to the Home Screen and open that installed app before enabling notifications. Web Push requires iOS/iPadOS 16.4 or later and a direct user gesture to request permission. [WebKit's installation and push requirements](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/).
+Open the deployed HTTPS app and choose your browser's **Install app**, **Add to Dock**, or **Add to Home Screen** option. **Menu → Account settings → App** also offers installation when the browser supports a prompt. On iPhone and iPad, use Share → Add to Home Screen and open that installed app.
 
-Go to **Menu → Account settings → App & notifications**, click **Enable notifications**, and grant permission. Permission is requested only after that click. Each browser or installed app subscribes separately. **Send test summary** checks the current device; **Turn off this device** removes its subscription. Notifications remain enabled until you disable them or change browser settings.
+The service worker caches only public static assets and a generic offline page. Authenticated pages, API responses, account data, and task content are never stored in its cache. Offline editing and offline task access are not provided. Updates show an explicit reload action; close/save an open editor before accepting an update. See the [Next.js PWA guide](https://nextjs.org/docs/app/guides/progressive-web-apps).
 
-The morning and evening summaries report **completed today** and **all pending tasks**:
+### Notifications paused
+
+Daily push notifications are deferred. `ENABLE_PUSH_NOTIFICATIONS` defaults to false, notification controls are hidden, and account settings makes no push configuration request or notification permission prompt. Push and summary-dispatch API routes return 404 while disabled. There are no enabled cron jobs in `vercel.json`. Keep the feature disabled until notification setup is deliberately resumed; installation and public-asset caching remain available.
+
+The retained implementation is designed for morning and evening summaries reporting **completed today** and **all pending tasks**:
 
 - Completed today counts tasks currently marked completed whose completion timestamp falls on the current date in the account timezone, including completed tasks subsequently archived.
 - Pending counts every unarchived task that is neither completed nor cancelled, including future and undated tasks across all categories. Work mode and active screen filters do not narrow these counts. Checklist subtasks are not separate task records and do not add to either count.
 
 Summary times are **09:00 and 20:00 in the account timezone**. Browser/device notification settings, Focus modes, and connectivity can delay receipt after dispatch. Recurring task generation remains access-driven; summaries count task records that already exist.
 
-The service worker caches only public static assets and a generic offline page. Authenticated pages, API responses, account data, and task content are never stored in its cache. Offline editing and offline task access are not provided. Updates show an explicit reload action; close/save an open editor before accepting an update. See the [Next.js PWA guide](https://nextjs.org/docs/app/guides/progressive-web-apps).
+### Future push configuration and scheduling
 
-### Push configuration and scheduling
-
-Set these server environment variables in the intended Vercel environment, in addition to the existing database/auth settings:
+These instructions are a reference for future enablement. Notifications and scheduled delivery are not active. Set these server environment variables in the intended Vercel environment only when resuming setup, in addition to the existing database/auth settings:
 
 | Variable | Value |
 | --- | --- |
+| `ENABLE_PUSH_NOTIFICATIONS` | `false` by default; set to exactly `true` only when intentionally enabling push |
 | `PUSH_VAPID_PUBLIC_KEY` | Base64url public key from one generated VAPID pair |
 | `PUSH_VAPID_PRIVATE_KEY` | Matching private key, stored as a secret |
 | `PUSH_CONTACT` | Valid contact such as `mailto:you@example.com` |
 | `CRON_SECRET` | A random secret of at least 32 characters |
-| `PUSH_SCHEDULE_WINDOW_MINUTES` | `60` for the Hobby schedule below; `15` is the runtime default |
+| `PUSH_SCHEDULE_WINDOW_MINUTES` | `15` by default; `60` if choosing the Hobby schedule described below |
+
+After enablement, go to **Menu → Account settings → App & notifications**, click **Enable notifications**, and grant permission. Permission is requested only after that click. Each browser or installed app subscribes separately. **Send test summary** checks the current device; **Turn off this device** removes its subscription. Notifications remain enabled until you disable them or change browser settings. On iPhone and iPad, Web Push requires iOS/iPadOS 16.4 or later, a Home Screen installation, and a direct user gesture. [WebKit's push requirements](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/).
 
 Keep the same VAPID keypair across deployments. Rotating it requires devices to enable notifications again. Never put the private key or cron secret in a `NEXT_PUBLIC` variable, the manifest, the service worker, a committed file, or a query string. `APP_URL` must match the final HTTPS app origin.
 
@@ -166,13 +171,13 @@ NODE
 
 Provision these values through private environment settings. The additive `202610300001_web_push_daily_summary` migration creates subscription and delivery tables; it does not delete or reset existing tasks or account data. The safe release migration wrapper applies it before the new code serves requests.
 
-The dispatcher is `GET` or `POST /api/cron/daily-summary`, authenticated with an `Authorization: Bearer <CRON_SECRET>` header. It does not use a login session. Vercel Cron supplies that header automatically when `CRON_SECRET` is configured; an external scheduler must set it explicitly. [Cron authentication](https://vercel.com/docs/cron-jobs/manage-cron-jobs).
+When the feature is enabled, the dispatcher is `GET` or `POST /api/cron/daily-summary`, authenticated with an `Authorization: Bearer <CRON_SECRET>` header. It does not use a login session. Vercel Cron supplies that header automatically when `CRON_SECRET` is configured; an external scheduler must set it explicitly. [Cron authentication](https://vercel.com/docs/cron-jobs/manage-cron-jobs).
 
-The free Vercel Hobby setup uses two daily UTC jobs, **03:30** and **14:30**, corresponding to 09:00 and 20:00 in `Asia/Kolkata`, with `PUSH_SCHEDULE_WINDOW_MINUTES=60`. These jobs are tied to that timezone: update their UTC times if the account timezone changes. Hobby may invoke a job up to 59 minutes late, so it cannot guarantee exact 9am/8pm dispatch. Vercel does not retry failed cron invocations automatically. [Cron plan limits and precision](https://vercel.com/docs/cron-jobs/usage-and-pricing), [cron retry behavior](https://vercel.com/docs/cron-jobs/manage-cron-jobs).
+No cron jobs are configured in the current release. If choosing free Vercel Hobby scheduling later, two daily UTC jobs at **03:30** and **14:30** correspond to 09:00 and 20:00 in `Asia/Kolkata`, with `PUSH_SCHEDULE_WINDOW_MINUTES=60`. Those jobs would be tied to that timezone: update their UTC times if the account timezone changes. Hobby may invoke a job up to 59 minutes late, so it cannot guarantee exact 9am/8pm dispatch. Vercel does not retry failed cron invocations automatically. [Cron plan limits and precision](https://vercel.com/docs/cron-jobs/usage-and-pricing), [cron retry behavior](https://vercel.com/docs/cron-jobs/manage-cron-jobs).
 
 For precise timing and dependable retries, use a scheduler that calls the dispatcher every minute, or one that invokes at both target times and retries/drains pending deliveries. The dispatcher deduplicates each device/date/slot, claims work durably, and retries temporary failures on later invocations for up to an hour. Each request processes up to five devices; a `503` response with `Retry-After: 30` means work remains and needs another invocation. Per-minute ticks also follow account timezone changes automatically. Frequent native Vercel cron requires a plan that supports it; an external scheduler must support private authorization headers.
 
-Setting VAPID keys alone does not start a schedule. Verify the deployed cron configuration, production environment variables, device subscription, a test summary, and a scheduled delivery before treating automatic notifications as active. Precise external scheduling is an optional deployment choice and is not enabled by this code alone.
+Setting VAPID keys alone does not enable the feature or start a schedule. When setup resumes, verify the feature flag, deployed cron configuration, production environment variables, device subscription, a test summary, and a scheduled delivery before treating automatic notifications as active. Precise external scheduling is an optional deployment choice and is not enabled by this code alone.
 
 ## Security and account operations
 

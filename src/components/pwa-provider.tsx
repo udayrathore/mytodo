@@ -20,12 +20,14 @@ type InstallEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 type PwaState = {
+  notificationsEnabled: boolean;
   installed: boolean;
   appleMobile: boolean;
   canInstall: boolean;
   install: () => Promise<void>;
 };
 const PwaContext = createContext<PwaState>({
+  notificationsEnabled: false,
   installed: false,
   appleMobile: false,
   canInstall: false,
@@ -33,7 +35,13 @@ const PwaContext = createContext<PwaState>({
 });
 export const usePwa = () => useContext(PwaContext);
 
-export function PwaProvider({ children }: { children: ReactNode }) {
+export function PwaProvider({
+  children,
+  notificationsEnabled,
+}: {
+  children: ReactNode;
+  notificationsEnabled: boolean;
+}) {
   const [installed, setInstalled] = useState(false);
   const [appleMobile, setAppleMobile] = useState(false);
   const [installEvent, setInstallEvent] = useState<InstallEvent | null>(null);
@@ -138,7 +146,13 @@ export function PwaProvider({ children }: { children: ReactNode }) {
   }
   return (
     <PwaContext.Provider
-      value={{ installed, appleMobile, canInstall: !!installEvent, install }}
+      value={{
+        installed,
+        appleMobile,
+        canInstall: !!installEvent,
+        install,
+        notificationsEnabled,
+      }}
     >
       {children}
       {waiting && !later && (

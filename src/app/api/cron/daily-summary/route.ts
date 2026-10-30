@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
 import { validCronAuthorization } from "@/lib/push-input";
 import { dispatchDailySummaries, pushConfigured } from "@/lib/push-service";
+import { pushNotificationsEnabled } from "@/lib/notification-feature";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 const headers = { "Cache-Control": "private, no-store" };
 export async function GET(request: Request) {
+  if (!pushNotificationsEnabled())
+    return NextResponse.json(
+      { error: "Notifications are paused." },
+      { status: 404, headers },
+    );
   if (!process.env.CRON_SECRET || process.env.CRON_SECRET.length < 32)
     return NextResponse.json(
       { error: "Summary scheduler is not configured." },

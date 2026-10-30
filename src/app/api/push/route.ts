@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { AuthError, checkOrigin, requireUser } from "@/lib/auth";
 import { pushActionInput } from "@/lib/push-input";
+import { pushNotificationsEnabled } from "@/lib/notification-feature";
 import {
   PushError,
   pushConfigured,
@@ -35,6 +36,11 @@ function failure(cause: unknown) {
   );
 }
 export async function GET() {
+  if (!pushNotificationsEnabled())
+    return NextResponse.json(
+      { error: "Notifications are paused." },
+      { status: 404, headers },
+    );
   try {
     const user = await requireUser();
     return NextResponse.json(await pushStatus(user.id, user.timezone), {
@@ -45,6 +51,11 @@ export async function GET() {
   }
 }
 export async function POST(request: Request) {
+  if (!pushNotificationsEnabled())
+    return NextResponse.json(
+      { error: "Notifications are paused." },
+      { status: 404, headers },
+    );
   try {
     checkOrigin(request);
     const user = await requireUser();

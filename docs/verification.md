@@ -213,3 +213,16 @@ browser. `node scripts/test-isolated.mjs --api-only` runs the isolated database/
   retry needs the documented external scheduler or suitable Vercel plan.
   Production push delivery must not be called active until secret installation,
   device opt-in, a test push and a scheduled invocation have been verified.
+
+### Notifications deferred — 30 October 2026
+
+At the user's request, notifications are disabled by default and in production.
+Notification controls and effects do not mount; PWA installation stays available.
+Subscription and dispatch routes return 404 while paused, and `vercel.json` has no
+scheduled jobs. No external scheduler was connected. Existing data and the retained
+implementation remain available for a later, explicitly enabled release.
+
+Validation: 44 unit tests, 19 isolated database workflows and 4 HTTP workflows pass;
+TypeScript/no-unused checks pass. The local production build passes with Webpack
+(the local Turbopack process hit a socket permission restriction). Vercel continues
+to use its normal production compiler.

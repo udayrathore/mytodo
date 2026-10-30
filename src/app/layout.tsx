@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { IconTooltips } from "@/components/icon-tooltips";
 import { PwaProvider } from "@/components/pwa-provider";
+import { pushNotificationsEnabled } from "@/lib/notification-feature";
 export const metadata: Metadata = {
   title: "Tasks",
   description: "Task management",
@@ -30,7 +31,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <PwaProvider>
+        <PwaProvider notificationsEnabled={pushNotificationsEnabled()}>
           {children}
           <IconTooltips />
         </PwaProvider>

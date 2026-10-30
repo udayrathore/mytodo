@@ -33,6 +33,58 @@ async function write(
 }
 export function PwaSettings() {
   const pwa = usePwa();
+  const [installError, setInstallError] = useState("");
+  return (
+    <section
+      className={styles.settings}
+      aria-label={pwa.notificationsEnabled ? "App and notifications" : "App"}
+    >
+      <h2>{pwa.notificationsEnabled ? "App & notifications" : "App"}</h2>
+      <div className={styles.setting}>
+        <h3>Install Tasks</h3>
+        {pwa.installed ? (
+          <p>Tasks is installed on this device.</p>
+        ) : (
+          <>
+            <p>Open Tasks as an app from your home screen or dock.</p>
+            {pwa.canInstall ? (
+              <button
+                className="button"
+                type="button"
+                onClick={() =>
+                  void pwa
+                    .install()
+                    .catch(() =>
+                      setInstallError(
+                        "Use your browser’s Install app option to finish installing.",
+                      ),
+                    )
+                }
+              >
+                Install app
+              </button>
+            ) : (
+              <p className="muted small">
+                {pwa.appleMobile
+                  ? "Use Share → Add to Home Screen, then open the installed app."
+                  : "Use your browser’s Install app, Add to Dock, or Add to Home Screen option."}
+              </p>
+            )}
+          </>
+        )}
+      </div>
+      {installError && (
+        <p className="form-error" role="alert">
+          {installError}
+        </p>
+      )}
+      {pwa.notificationsEnabled && <DailyTaskSummaries />}
+    </section>
+  );
+}
+
+function DailyTaskSummaries() {
+  const pwa = usePwa();
   const [supported, setSupported] = useState<boolean | null>(null);
   const [permission, setPermission] =
     useState<NotificationPermission>("default");
@@ -211,41 +263,7 @@ export function PwaSettings() {
     }
   }
   return (
-    <section className={styles.settings} aria-label="App and notifications">
-      <h2>App & notifications</h2>
-      <div className={styles.setting}>
-        <h3>Install Tasks</h3>
-        {pwa.installed ? (
-          <p>Tasks is installed on this device.</p>
-        ) : (
-          <>
-            <p>Open Tasks as an app from your home screen or dock.</p>
-            {pwa.canInstall ? (
-              <button
-                className="button"
-                type="button"
-                onClick={() =>
-                  void pwa
-                    .install()
-                    .catch(() =>
-                      setError(
-                        "Use your browser’s Install app option to finish installing.",
-                      ),
-                    )
-                }
-              >
-                Install app
-              </button>
-            ) : (
-              <p className="muted small">
-                {pwa.appleMobile
-                  ? "Use Share → Add to Home Screen, then open the installed app."
-                  : "Use your browser’s Install app, Add to Dock, or Add to Home Screen option."}
-              </p>
-            )}
-          </>
-        )}
-      </div>
+    <>
       <div className={styles.setting}>
         <h3>Daily task summaries</h3>
         <p>
@@ -345,7 +363,7 @@ export function PwaSettings() {
           {message}
         </p>
       )}
-    </section>
+    </>
   );
 }
 function equalKey(left: Uint8Array, right: Uint8Array) {

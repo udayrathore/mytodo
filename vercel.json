@@ -1,7 +1,4 @@
 {
   "buildCommand": "node scripts/vercel-build.mjs",
-  "crons": [
-    { "path": "/api/cron/daily-summary", "schedule": "30 3 * * *" },
-    { "path": "/api/cron/daily-summary", "schedule": "30 14 * * *" }
-  ]
+  "crons": []
 }

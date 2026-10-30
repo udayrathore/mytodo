@@ -27,6 +27,7 @@ const env = {
   APP_TIMEZONE: "Asia/Kolkata",
   TEST_LOGIN_PASSWORD: password,
   TEST_ISOLATED: "1",
+  ENABLE_PUSH_NOTIFICATIONS: "true",
   PUSH_VAPID_PUBLIC_KEY: vapid.publicKey,
   PUSH_VAPID_PRIVATE_KEY: vapid.privateKey,
   PUSH_CONTACT: "mailto:isolated@example.test",
